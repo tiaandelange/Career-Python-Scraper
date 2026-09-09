@@ -5,8 +5,8 @@ from __future__ import annotations
 import html
 import logging
 from dataclasses import dataclass, field
-from datetime import date, datetime
-from typing import Any
+from datetime import date
+from typing import Any, Literal
 
 import httpx
 
@@ -16,6 +16,7 @@ from job_scout.models.job import CanonicalJobRecord
 from job_scout.services.database import JobRepository
 from job_scout.services.salary import format_salary_for_display
 from job_scout.utils.dates import utcnow
+from job_scout.utils.text import strip_html
 
 logger = logging.getLogger(__name__)
 
@@ -23,11 +24,15 @@ RESEND_API_URL = "https://api.resend.com/emails"
 
 MATERIAL_SCORE_DELTA = 8
 
+CardStatus = Literal["new", "updated", "returning"]
+
 
 @dataclass
 class DigestSelection:
     jobs: list[CanonicalJobRecord]
     updated_ids: set[str] = field(default_factory=set)
+    new_ids: set[str] = field(default_factory=set)
+    returning: list[CanonicalJobRecord] = field(default_factory=list)
     summary: dict[str, int] = field(default_factory=dict)
 
 
@@ -58,7 +63,7 @@ def select_digest_jobs(
     jobs: list[CanonicalJobRecord],
     *,
     previous_by_fp: dict[str, CanonicalJobRecord] | None = None,
-    min_category: FitCategory = FitCategory.GOOD,
+    min_category: FitCategory = FitCategory.POSSIBLE,
 ) -> DigestSelection:
     previous_by_fp = previous_by_fp or {}
     rank = {
@@ -71,6 +76,8 @@ def select_digest_jobs(
     min_rank = rank[min_category]
     selected: list[CanonicalJobRecord] = []
     updated: set[str] = set()
+    new_ids: set[str] = set()
+    returning: list[CanonicalJobRecord] = []
     for job in jobs:
         if not job.active or job.rejected:
             continue
@@ -79,30 +86,51 @@ def select_digest_jobs(
         prev = previous_by_fp.get(job.canonical_fingerprint)
         is_new = job.last_notified_at is None
         changed = job_changed_materially(prev, job) if not is_new else False
-        if not is_new and not changed:
-            # Prefer new since previous digest; skip exact repeats.
+        if is_new:
+            new_ids.add(job.canonical_fingerprint)
+            selected.append(job)
             continue
         if changed:
             updated.add(job.canonical_fingerprint)
-        selected.append(job)
+            selected.append(job)
+            continue
+        returning.append(job)
 
     selected.sort(key=lambda item: (-(item.fit_score or 0), item.title))
+    returning.sort(key=lambda item: (-(item.fit_score or 0), item.title))
     summary = {
         "included": len(selected),
+        "new": len(new_ids),
+        "updated": len(updated),
+        "returning": len(returning),
         "remote": sum(1 for j in selected if j.work_mode == WorkMode.REMOTE),
         "hybrid": sum(1 for j in selected if j.work_mode == WorkMode.HYBRID),
         "onsite": sum(1 for j in selected if j.work_mode == WorkMode.ONSITE),
         "exceptional": sum(1 for j in selected if j.fit_category == FitCategory.EXCEPTIONAL),
         "strong": sum(1 for j in selected if j.fit_category == FitCategory.STRONG),
         "good": sum(1 for j in selected if j.fit_category == FitCategory.GOOD),
-        "updated": len(updated),
+        "possible": sum(1 for j in selected if j.fit_category == FitCategory.POSSIBLE),
     }
-    return DigestSelection(jobs=selected, updated_ids=updated, summary=summary)
+    return DigestSelection(
+        jobs=selected,
+        updated_ids=updated,
+        new_ids=new_ids,
+        returning=returning,
+        summary=summary,
+    )
+
+
+def resolve_apply_url(job: CanonicalJobRecord) -> str:
+    for candidate in (job.direct_employer_url, job.apply_url, *(job.source_urls or ())):
+        if candidate and str(candidate).strip().startswith(("http://", "https://")):
+            return str(candidate).strip()
+    return ""
 
 
 def job_excerpt(job: CanonicalJobRecord, *, max_chars: int = 220) -> str:
     """One short plain-text blurb for the email card — enough context, not a full advert."""
-    text = " ".join((job.description or "").split())
+    text = strip_html(job.description or "")
+    text = " ".join(text.split())
     if not text:
         return ""
     if len(text) <= max_chars:
@@ -113,11 +141,38 @@ def job_excerpt(job: CanonicalJobRecord, *, max_chars: int = 220) -> str:
     return cut.rstrip(".,;:") + "…"
 
 
-def _card(job: CanonicalJobRecord, updated: bool) -> str:
-    apply_url = job.direct_employer_url or job.apply_url or (job.source_urls[0] if job.source_urls else "")
+def _status_for(job: CanonicalJobRecord, selection: DigestSelection) -> CardStatus:
+    if job.canonical_fingerprint in selection.new_ids:
+        return "new"
+    if job.canonical_fingerprint in selection.updated_ids:
+        return "updated"
+    return "returning"
+
+
+def _status_badge(status: CardStatus) -> str:
+    styles = {
+        "new": ("NEW", "#0b5fff", "#e8f0ff"),
+        "updated": ("UPDATED", "#b45309", "#fff7ed"),
+        "returning": ("SEEN BEFORE", "#4b5563", "#f3f4f6"),
+    }
+    label, fg, bg = styles[status]
+    return (
+        f'<span style="display:inline-block;background:{bg};color:{fg};'
+        f"font-size:11px;font-weight:bold;letter-spacing:.04em;"
+        f'padding:3px 8px;border-radius:4px;margin-right:8px">{label}</span>'
+    )
+
+
+def _card(job: CanonicalJobRecord, status: CardStatus) -> str:
+    apply_url = resolve_apply_url(job)
     safe_url = html.escape(apply_url, quote=True) if apply_url else ""
     secondary = ""
-    if job.direct_employer_url and job.apply_url and job.apply_url != job.direct_employer_url:
+    if (
+        job.direct_employer_url
+        and job.apply_url
+        and job.apply_url != job.direct_employer_url
+        and job.apply_url.startswith("http")
+    ):
         sec = html.escape(job.apply_url, quote=True)
         secondary = (
             f'<p style="margin:8px 0 0;font-size:13px">'
@@ -125,12 +180,18 @@ def _card(job: CanonicalJobRecord, updated: bool) -> str:
         )
     reasons = "".join(f"<li>{html.escape(item)}</li>" for item in job.fit_reasons[:3])
     concerns = "".join(f"<li>{html.escape(item)}</li>" for item in job.concerns[:2])
-    badge = "UPDATED · " if updated else ""
     remote = ""
     if job.work_mode == WorkMode.REMOTE:
-        remote = f"<p style=\"margin:0 0 8px\"><strong>Remote eligibility:</strong> {html.escape(job.remote_scope.value)}</p>"
+        remote = (
+            f'<p style="margin:0 0 8px"><strong>Remote eligibility:</strong> '
+            f"{html.escape(job.remote_scope.value)}</p>"
+        )
     visa = "Unknown" if job.mobility.visa_sponsorship is None else ("Yes" if job.mobility.visa_sponsorship else "No")
-    reloc = "Unknown" if job.mobility.relocation_assistance is None else ("Yes" if job.mobility.relocation_assistance else "No")
+    reloc = (
+        "Unknown"
+        if job.mobility.relocation_assistance is None
+        else ("Yes" if job.mobility.relocation_assistance else "No")
+    )
     work_auth = html.escape(job.mobility.work_authorisation_notes or "Unknown — not inferred")
     first_seen = job.first_seen_at.date().isoformat() if job.first_seen_at else "Unknown"
     posted = job.date_posted.date().isoformat() if job.date_posted else "Unknown"
@@ -138,8 +199,7 @@ def _card(job: CanonicalJobRecord, updated: bool) -> str:
     title_html = html.escape(job.title)
     if safe_url:
         title_html = (
-            f'<a href="{safe_url}" style="color:#0f6b4c;text-decoration:none">'
-            f"{title_html}</a>"
+            f'<a href="{safe_url}" style="color:#0f6b4c;text-decoration:none">{title_html}</a>'
         )
     cta = (
         f'<a href="{safe_url}" style="display:inline-block;background:#0f6b4c;color:#ffffff;'
@@ -157,7 +217,10 @@ def _card(job: CanonicalJobRecord, updated: bool) -> str:
     return f"""
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 16px;border:1px solid #d8d8d8;border-radius:8px;background:#ffffff">
       <tr><td style="padding:16px;font-family:Arial,sans-serif;color:#222">
-        <p style="margin:0 0 6px;font-size:12px;letter-spacing:.04em;color:#555">{badge}{job.fit_category or ''} · {job.fit_score if job.fit_score is not None else '—'}/100</p>
+        <p style="margin:0 0 8px;font-size:12px;color:#555">
+          {_status_badge(status)}
+          <span style="letter-spacing:.04em">{job.fit_category or ''} · {job.fit_score if job.fit_score is not None else '—'}/100</span>
+        </p>
         <h3 style="margin:0 0 8px;font-size:18px;line-height:1.3">{title_html}</h3>
         <p style="margin:0 0 8px"><strong>{html.escape(job.company or 'Unknown company')}</strong><br>
         {html.escape(job.location_text or 'Location unknown')} · {html.escape(job.work_mode.value)}</p>
@@ -177,13 +240,13 @@ def _card(job: CanonicalJobRecord, updated: bool) -> str:
     """
 
 
-def _stat_cell(label: str, value: object) -> str:
+def _stat_cell(label: str, value: object, *, fg: str, bg: str, border: str) -> str:
     return f"""
-    <td width="33.33%" valign="top" style="padding:6px">
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #c5ddd2;border-radius:8px;background:#f3faf6">
+    <td width="25%" valign="top" style="padding:6px">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid {border};border-radius:8px;background:{bg}">
         <tr><td style="padding:10px 12px;font-family:Arial,sans-serif">
-          <div style="font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:#0f6b4c;font-weight:bold">{html.escape(label)}</div>
-          <div style="font-size:22px;line-height:1.2;color:#0f6b4c;font-weight:bold;margin-top:4px">{html.escape(str(value))}</div>
+          <div style="font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:{fg};font-weight:bold">{html.escape(label)}</div>
+          <div style="font-size:22px;line-height:1.2;color:{fg};font-weight:bold;margin-top:4px">{html.escape(str(value))}</div>
         </td></tr>
       </table>
     </td>
@@ -193,28 +256,57 @@ def _stat_cell(label: str, value: object) -> str:
 def _stats_table(summary: dict[str, int], health: dict[str, Any]) -> str:
     found = health.get("jobs_found", summary.get("found", 0))
     discarded = health.get("jobs_discarded", summary.get("discarded", 0))
-    remote = summary.get("remote", 0)
-    hybrid = summary.get("hybrid", 0)
-    onsite = summary.get("onsite", 0)
-    perfect = summary.get("exceptional", 0)
-    row1 = "".join(
-        [
-            _stat_cell("Total found", found),
-            _stat_cell("Discarded", discarded),
-            _stat_cell("Remote", remote),
-        ]
-    )
-    row2 = "".join(
-        [
-            _stat_cell("Hybrid", hybrid),
-            _stat_cell("On-site", onsite),
-            _stat_cell("Perfect match", perfect),
-        ]
-    )
+    cells = [
+        _stat_cell("Total found", found, fg="#1d4ed8", bg="#eff6ff", border="#bfdbfe"),
+        _stat_cell("Discarded", discarded, fg="#4b5563", bg="#f3f4f6", border="#d1d5db"),
+        _stat_cell("New", summary.get("new", 0), fg="#0f766e", bg="#f0fdfa", border="#99f6e4"),
+        _stat_cell("Updated", summary.get("updated", 0), fg="#b45309", bg="#fff7ed", border="#fdba74"),
+        _stat_cell("Remote", summary.get("remote", 0), fg="#0f6b4c", bg="#f3faf6", border="#c5ddd2"),
+        _stat_cell("Hybrid", summary.get("hybrid", 0), fg="#92400e", bg="#fffbeb", border="#fcd34d"),
+        _stat_cell("On-site", summary.get("onsite", 0), fg="#9f1239", bg="#fff1f2", border="#fda4af"),
+        _stat_cell("Perfect match", summary.get("exceptional", 0), fg="#6d28d9", bg="#f5f3ff", border="#c4b5fd"),
+    ]
+    row1 = "".join(cells[:4])
+    row2 = "".join(cells[4:])
+    returning = summary.get("returning", 0)
     return f"""
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 8px">
       <tr>{row1}</tr>
       <tr>{row2}</tr>
+    </table>
+    <p style="margin:4px 0 0;font-size:12px;color:#555;font-family:Arial,sans-serif">
+      Still open from earlier digests (not re-listed above): {returning}
+    </p>
+    """
+
+
+def _returning_section(jobs: list[CanonicalJobRecord], *, limit: int = 12) -> str:
+    if not jobs:
+        return ""
+    rows = []
+    for job in jobs[:limit]:
+        url = resolve_apply_url(job)
+        title = html.escape(job.title)
+        company = html.escape(job.company or "Unknown")
+        score = job.fit_score if job.fit_score is not None else "—"
+        if url:
+            safe = html.escape(url, quote=True)
+            title = f'<a href="{safe}" style="color:#0f6b4c;text-decoration:none">{title}</a>'
+        rows.append(
+            f'<li style="margin:0 0 8px">{_status_badge("returning")} '
+            f"<strong>{title}</strong> — {company} · {job.fit_category or ''} {score}/100</li>"
+        )
+    more = ""
+    if len(jobs) > limit:
+        more = f'<p style="margin:8px 0 0;color:#555;font-size:13px">+{len(jobs) - limit} more still open.</p>'
+    return f"""
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 24px">
+      <tr><td style="background:#4b5563;color:#fff;padding:10px 14px;font-family:Arial,sans-serif;font-size:16px;font-weight:bold">STILL OPEN (seen before)</td></tr>
+      <tr><td style="padding:12px 14px;font-family:Arial,sans-serif;background:#ffffff;border:1px solid #d8d8d8;border-top:0">
+        <p style="margin:0 0 10px;font-size:13px;color:#555">Previously emailed matches that remain active. Not counted in New/Updated above.</p>
+        <ul style="margin:0;padding-left:18px">{''.join(rows)}</ul>
+        {more}
+      </td></tr>
     </table>
     """
 
@@ -233,11 +325,13 @@ def render_digest_html(
         (WorkMode.ONSITE, "ON-SITE", "#6b1f3b"),
     ):
         cards = [
-            _card(job, job.canonical_fingerprint in selection.updated_ids)
+            _card(job, _status_for(job, selection))
             for job in selection.jobs
             if job.work_mode == mode
         ]
-        body = "".join(cards) or '<p style="font-family:Arial,sans-serif;color:#555">No new or updated matches in this section.</p>'
+        body = "".join(cards) or (
+            '<p style="font-family:Arial,sans-serif;color:#555">No new or updated matches in this section.</p>'
+        )
         sections.append(
             f"""
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 24px">
@@ -246,6 +340,7 @@ def render_digest_html(
             </table>
             """
         )
+    sections.append(_returning_section(selection.returning))
     failed = [str(item) for item in (health.get("failed_sources") or []) if item]
     stale = [str(item) for item in (health.get("stale_sources") or []) if item]
     last_scrape = health.get("last_successful_scrape") or "unknown"
@@ -263,8 +358,15 @@ def render_digest_html(
         <tr><td style="font-family:Arial,sans-serif;padding:8px 0 12px">
           <h1 style="margin:0 0 12px;font-size:22px;color:#1a1a1a">Daily Job Scout — {digest_date.strftime('%d %b %Y')}</h1>
           {_stats_table(summary, health)}
-          <p style="margin:8px 0 0;font-size:13px;color:#0f6b4c;font-family:Arial,sans-serif">
-            In this email: {summary.get('included', 0)} · Exceptional {summary.get('exceptional', 0)} · Strong {summary.get('strong', 0)} · Good {summary.get('good', 0)} · Sources {sources_ok} ok / {sources_failed} failed
+          <p style="margin:8px 0 0;font-size:13px;color:#333;font-family:Arial,sans-serif">
+            In this email: {summary.get('included', 0)}
+            · New {summary.get('new', 0)}
+            · Updated {summary.get('updated', 0)}
+            · Exceptional {summary.get('exceptional', 0)}
+            · Strong {summary.get('strong', 0)}
+            · Good {summary.get('good', 0)}
+            · Possible {summary.get('possible', 0)}
+            · Sources {sources_ok} ok / {sources_failed} failed
           </p>
         </td></tr>
         <tr><td>{''.join(sections)}</td></tr>
@@ -324,16 +426,21 @@ def build_and_maybe_send(
     settings = settings or get_settings()
     scoring = load_scoring(settings)
     min_score = int(scoring.get("low_score_cutoff", 60))
+    min_name = str(scoring.get("digest_minimum_category") or "Possible")
+    try:
+        min_category = FitCategory(min_name)
+    except ValueError:
+        min_category = FitCategory.POSSIBLE
     jobs = repo.list_digest_candidates(repo.last_digest_at(), min_score)
     previous = {job.canonical_fingerprint: job for job in jobs if job.last_notified_at}
-    selection = select_digest_jobs(jobs, previous_by_fp=previous)
+    selection = select_digest_jobs(jobs, previous_by_fp=previous, min_category=min_category)
     health = {
         "sources_ok": 0,
         "sources_failed": 0,
         "failed_sources": [],
         "stale_sources": [],
         "last_successful_scrape": repo.last_successful_scrape(),
-        "new_jobs": selection.summary.get("included", 0),
+        "new_jobs": selection.summary.get("new", 0),
         "jobs_found": 0,
         "jobs_discarded": 0,
     }

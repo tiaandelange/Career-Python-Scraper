@@ -209,6 +209,35 @@ def _salary_numbers(raw: str, *, hours_per_week: Decimal | None) -> list[Decimal
     return numbers
 
 
+_PAY_SNIPPET = re.compile(
+    r"(?:US\s+Pay\s+Range|Pay\s+Range|Salary\s*(?:Range)?|Compensation|Wage\s+Range)"
+    r".{0,40}?"
+    r"(?:\$|USD|EUR|GBP|ZAR|R\s?|€|£)\s?\d[\d,]*(?:\.\d+)?"
+    r"(?:.{0,24}?(?:\$|USD|EUR|GBP|ZAR|R\s?|€|£)?\s?\d[\d,]*(?:\.\d+)?)?"
+    r"(?:.{0,20}?(?:USD|EUR|GBP|ZAR|/year|/yr|per\s+year|per\s+annum|/hour|/hr|per\s+hour))?",
+    re.IGNORECASE,
+)
+
+
+def extract_pay_snippet(*texts: str | None) -> str | None:
+    """Pull a short employer pay phrase from a long description when salary_text is empty."""
+    for text in texts:
+        if not text:
+            continue
+        match = _PAY_SNIPPET.search(text)
+        if match:
+            return match.group(0)
+        # Fallback: bare $range near "pay"/"salary"
+        loose = re.search(
+            r"(?:salary|pay|wage).{0,30}\$\s?\d[\d,]*(?:\s*[-–—to]+\s*\$?\s?\d[\d,]*)?",
+            text,
+            re.IGNORECASE,
+        )
+        if loose:
+            return loose.group(0)
+    return None
+
+
 def parse_salary_text(
     text: str | None,
     *,
@@ -217,18 +246,22 @@ def parse_salary_text(
     context: str | None = None,
     policy: dict[str, Any] | None = None,
 ) -> SalarySnapshot:
-    if not text or not str(text).strip():
-        # Hours may still appear only in the description.
-        hours_only = extract_hours_per_week(context)
-        if hours_only is None:
-            return SalarySnapshot(published=False)
-        return SalarySnapshot(
-            published=False,
-            hours_per_week=hours_only,
-            parse_notes=["hours_found_without_salary"],
-        )
+    raw_in = (text or "").strip()
+    if not raw_in:
+        snippet = extract_pay_snippet(context)
+        if snippet:
+            raw_in = snippet
+        else:
+            hours_only = extract_hours_per_week(context)
+            if hours_only is None:
+                return SalarySnapshot(published=False)
+            return SalarySnapshot(
+                published=False,
+                hours_per_week=hours_only,
+                parse_notes=["hours_found_without_salary"],
+            )
 
-    raw = str(text).strip()
+    raw = str(raw_in).strip()
     notes: list[str] = []
     lowered = raw.lower()
     if any(token in lowered for token in ("glassdoor", "estimated", "estimate", "typically pays", "average salary")):
@@ -244,6 +277,11 @@ def parse_salary_text(
         notes.append("may_include_variable_pay")
 
     numbers = _salary_numbers(raw, hours_per_week=hours)
+    if not numbers and context and text:
+        # Structured salary_text had no numbers — try a body pay snippet.
+        snippet = extract_pay_snippet(context)
+        if snippet and snippet != raw:
+            return parse_salary_text(snippet, currency=currency, period=period, context=context, policy=policy)
     if not numbers:
         return SalarySnapshot(
             published=False,

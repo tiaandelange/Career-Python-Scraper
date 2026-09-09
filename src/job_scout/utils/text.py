@@ -19,17 +19,18 @@ def collapse_ws(value: str | None) -> str:
 def strip_html(value: str | None) -> str:
     if not value:
         return ""
-    text = re.sub(r"(?is)<(script|style).*?>.*?</\1>", " ", value)
+    import html as html_lib
+
+    # Greenhouse and some ATS boards return fully entity-encoded HTML (&lt;div&gt;…).
+    text = html_lib.unescape(html_lib.unescape(value))
+    text = re.sub(r"(?is)<(script|style).*?>.*?</\1>", " ", text)
     text = re.sub(r"(?i)<br\s*/?>", "\n", text)
     text = re.sub(r"(?i)</p>", "\n", text)
     text = re.sub(r"(?s)<[^>]+>", " ", text)
+    text = html_lib.unescape(text)
     text = (
-        text.replace("&nbsp;", " ")
-        .replace("&amp;", "&")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", '"')
-        .replace("&#39;", "'")
+        text.replace("\xa0", " ")
+        .replace("&nbsp;", " ")
     )
     return collapse_ws(text)
 

@@ -112,7 +112,10 @@ def merge_jobs(
     current_rank = min((PREFERENCE_RANK.get(r.source_preference, 9) for r in existing_refs), default=9)
     incoming_rank = PREFERENCE_RANK.get(new_ref.source_preference, 9)
     base, other = (incoming, preferred) if incoming_rank < current_rank else (preferred, incoming)
-    if incoming.salary.published and not base.salary.published:
+    if incoming.salary.published and (
+        not base.salary.published
+        or (incoming.salary.raw_text and incoming.salary.raw_text != (base.salary.raw_text or ""))
+    ):
         base.salary = incoming.salary
     elif other.salary.published and not base.salary.published:
         base.salary = other.salary
@@ -126,9 +129,26 @@ def merge_jobs(
         base.mobility.relocation_assistance = incoming.mobility.relocation_assistance
     urls = list(dict.fromkeys([*base.source_urls, *incoming.source_urls, new_ref.source_url]))
     base.source_urls = urls
-    if incoming.description and len(incoming.description) > len(base.description or ""):
+    if _description_prefer(incoming.description, base.description or ""):
         base.description = incoming.description
     return base
+
+
+def _description_prefer(incoming: str, existing: str) -> bool:
+    """Prefer cleaner plain text over leftover HTML / entity-encoded blobs."""
+
+    def quality(text: str) -> int:
+        if not text:
+            return -1
+        score = len(text)
+        lowered = text.lower()
+        if "&lt;" in lowered or "&gt;" in lowered or "font-family" in lowered:
+            score -= 100_000
+        if "<div" in lowered or "<span" in lowered or "<p>" in lowered:
+            score -= 100_000
+        return score
+
+    return quality(incoming) > quality(existing)
 
 
 def to_canonical(job: NormalisedJobRecord) -> CanonicalJobRecord:

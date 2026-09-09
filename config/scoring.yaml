@@ -17,7 +17,7 @@ categories:
   Possible: [60, 69]
   Low: [0, 59]
 
-digest_minimum_category: Good
+digest_minimum_category: Possible
 low_score_cutoff: 60
 
 professional_positive:

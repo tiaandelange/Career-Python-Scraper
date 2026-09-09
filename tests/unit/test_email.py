@@ -10,9 +10,6 @@ def test_salary_label_remote_missing():
 
 
 def test_salary_label_hourly_part_time():
-    from decimal import Decimal
-
-    from job_scout.models.job import SalarySnapshot
     from job_scout.services.salary import parse_salary_text
 
     job = canonical_job(work_mode=WorkMode.REMOTE, title="Clean Energy Mechanical Design Engineer")
@@ -26,8 +23,7 @@ def test_salary_label_hourly_part_time():
     assert "40" not in label
 
 
-
-def test_select_skips_already_notified_unchanged(repo=None):
+def test_select_skips_already_notified_unchanged_from_main_list():
     from job_scout.utils.dates import utcnow
 
     fresh = canonical_job(title="New Mechanical Engineer", canonical_fingerprint="new-1")
@@ -41,6 +37,9 @@ def test_select_skips_already_notified_unchanged(repo=None):
     fps = {j.canonical_fingerprint for j in selection.jobs}
     assert "new-1" in fps
     assert "old-1" not in fps
+    assert selection.summary["new"] == 1
+    assert selection.summary["returning"] == 1
+    assert selection.returning[0].canonical_fingerprint == "old-1"
 
 
 def test_html_has_three_sections_in_order():
@@ -74,11 +73,28 @@ def test_html_has_three_sections_in_order():
     assert "Total found" in html
     assert "Discarded" in html
     assert "Perfect match" in html
+    assert "#1d4ed8" in html  # total found blue
+    assert "#0f766e" in html  # new teal
     assert 'href="https://example.com/remote"' in html
     assert "View / apply" in html
+    assert "NEW" in html
     assert "viewport" in html
-    # Short excerpt from the fixture description should appear once truncated/normalised.
     assert "Mechanical design" in html or "pipelines" in html
+
+
+def test_job_excerpt_strips_html():
+    from job_scout.services.email_digest import job_excerpt
+
+    dirty = canonical_job(
+        description=(
+            '<div class="content-intro"><p><span style="font-family: verdana">'
+            "At MacKay, we believe great people are the foundation.</span></p></div>"
+        ),
+    )
+    blurb = job_excerpt(dirty, max_chars=220)
+    assert "<div" not in blurb
+    assert "font-family" not in blurb
+    assert "At MacKay" in blurb
 
 
 def test_job_excerpt_is_short():
@@ -91,6 +107,40 @@ def test_job_excerpt_is_short():
     assert blurb.endswith("…")
     assert len(blurb) <= 230
     assert "Mechanical design" in blurb
+
+
+def test_returning_section_lists_seen_before():
+    from job_scout.utils.dates import utcnow
+
+    seen = canonical_job(title="Seen Civil Engineer", canonical_fingerprint="seen-1")
+    seen.fit_score = 81
+    seen.fit_category = FitCategory.STRONG
+    seen.last_notified_at = utcnow()
+    seen.apply_url = "https://example.com/seen"
+    selection = select_digest_jobs([seen], previous_by_fp={"seen-1": seen})
+    html = render_digest_html(
+        selection,
+        health={"sources_ok": 1, "sources_failed": 0, "jobs_found": 1, "jobs_discarded": 0},
+    )
+    assert "STILL OPEN" in html
+    assert "SEEN BEFORE" in html
+    assert 'href="https://example.com/seen"' in html
+
+
+def test_possible_score_included_in_digest():
+    possible = canonical_job(title="Possible Civil Engineer", canonical_fingerprint="p60")
+    possible.fit_score = 65
+    possible.fit_category = FitCategory.POSSIBLE
+    possible.apply_url = "https://example.com/possible"
+    selection = select_digest_jobs([possible], min_category=FitCategory.POSSIBLE)
+    assert selection.summary["possible"] == 1
+    assert selection.jobs[0].canonical_fingerprint == "p60"
+    html = render_digest_html(
+        selection,
+        health={"sources_ok": 1, "sources_failed": 0, "jobs_found": 10, "jobs_discarded": 2},
+    )
+    assert "Possible" in html
+    assert "Possible Civil Engineer" in html
 
 
 def test_send_resend_posts_to_api(monkeypatch):

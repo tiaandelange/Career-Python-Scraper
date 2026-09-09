@@ -65,9 +65,15 @@ class InMemoryJobRepository:
             job.first_seen_at = existing.first_seen_at
             job.last_notified_at = existing.last_notified_at
             job.source_urls = list(dict.fromkeys([*existing.source_urls, *job.source_urls]))
+            job.apply_url = job.apply_url or existing.apply_url
+            job.direct_employer_url = job.direct_employer_url or existing.direct_employer_url
         else:
             job.id = job.id or uuid4()
             job.first_seen_at = now
+        if source.source_url:
+            job.source_urls = list(dict.fromkeys([*job.source_urls, source.source_url]))
+        job.apply_url = job.apply_url or source.source_url or source.direct_employer_url
+        job.direct_employer_url = job.direct_employer_url or source.direct_employer_url or source.source_url
         job.last_seen_at = now
         self.jobs[job.canonical_fingerprint] = job
         self.sources.setdefault(job.canonical_fingerprint, [])
@@ -185,6 +191,14 @@ class SupabaseJobRepository:
     def upsert_job(self, job: CanonicalJobRecord, source: JobSourceRef) -> CanonicalJobRecord:
         now = utcnow()
         existing = self.get_by_fingerprint(job.canonical_fingerprint)
+        if existing:
+            job.apply_url = job.apply_url or existing.apply_url
+            job.direct_employer_url = job.direct_employer_url or existing.direct_employer_url
+            job.source_urls = list(dict.fromkeys([*existing.source_urls, *job.source_urls]))
+        job.apply_url = job.apply_url or source.source_url or source.direct_employer_url
+        job.direct_employer_url = job.direct_employer_url or source.direct_employer_url or source.source_url
+        if source.source_url:
+            job.source_urls = list(dict.fromkeys([*job.source_urls, source.source_url]))
         payload = _job_row(job, existing, now)
         self.client.table("jobs").upsert(payload, on_conflict="canonical_fingerprint").execute()
         stored = self.get_by_fingerprint(job.canonical_fingerprint)
@@ -200,6 +214,10 @@ class SupabaseJobRepository:
                 },
                 on_conflict="source_name,source_job_id",
             ).execute()
+            # Re-hydrate URLs onto the returned object for callers / digests.
+            stored.apply_url = stored.apply_url or job.apply_url
+            stored.direct_employer_url = stored.direct_employer_url or job.direct_employer_url
+            stored.source_urls = list(dict.fromkeys([*stored.source_urls, *job.source_urls, source.source_url]))
         return stored or job
 
     def get_by_fingerprint(self, fingerprint: str) -> CanonicalJobRecord | None:
@@ -217,7 +235,37 @@ class SupabaseJobRepository:
             .gte("fit_score", min_score)
         )
         result = query.execute()
-        return [_row_to_job(row) for row in (result.data or [])]
+        jobs = [_row_to_job(row) for row in (result.data or [])]
+        return self._hydrate_apply_urls(jobs)
+
+    def _hydrate_apply_urls(self, jobs: list[CanonicalJobRecord]) -> list[CanonicalJobRecord]:
+        """Attach apply/source URLs from job_sources (jobs table does not store them)."""
+        ids = [str(job.id) for job in jobs if job.id]
+        if not ids:
+            return jobs
+        try:
+            result = self.client.table("job_sources").select("*").in_("job_id", ids).execute()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Could not hydrate job_sources URLs: %s", exc)
+            return jobs
+        by_job: dict[str, list[dict[str, Any]]] = {}
+        for row in result.data or []:
+            by_job.setdefault(str(row.get("job_id")), []).append(row)
+        for job in jobs:
+            if not job.id:
+                continue
+            rows = by_job.get(str(job.id)) or []
+            if not rows:
+                continue
+            urls = [str(r.get("source_url")) for r in rows if r.get("source_url")]
+            directs = [str(r.get("direct_employer_url")) for r in rows if r.get("direct_employer_url")]
+            if urls:
+                job.source_urls = list(dict.fromkeys([*(job.source_urls or []), *urls]))
+            if not job.apply_url:
+                job.apply_url = urls[0] if urls else (directs[0] if directs else None)
+            if not job.direct_employer_url:
+                job.direct_employer_url = directs[0] if directs else (urls[0] if urls else None)
+        return jobs
 
     def mark_notified(self, fingerprints: list[str], when: datetime) -> None:
         if not fingerprints:
@@ -483,6 +531,8 @@ def _row_to_job(row: dict[str, Any]) -> CanonicalJobRecord:
         fit_reasons=row.get("fit_reasons") or [],
         concerns=row.get("concerns") or [],
         last_notified_at=parse_datetime(row.get("last_notified_at")),
+        apply_url=row.get("apply_url"),
+        direct_employer_url=row.get("direct_employer_url"),
     )
 
 
