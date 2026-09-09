@@ -368,7 +368,7 @@ def merge_structured_salary(
     combined = " ".join(p for p in [text or "", context or ""] if p)
     hours = extract_hours_per_week(combined)
     period_code = detect_period(text or period or "annual", period)
-    currency_code = detect_currency(text or "", currency)
+    currency_code = detect_currency(combined, currency)
     snapshot = SalarySnapshot(
         published=True,
         raw_text=text,

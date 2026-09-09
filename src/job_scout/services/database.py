@@ -240,6 +240,7 @@ class SupabaseJobRepository:
             self.client.table("jobs")
             .select("*")
             .eq("active", True)
+            .eq("rejected", False)
             .gte("fit_score", min_score)
         )
         result = query.execute()
@@ -507,6 +508,8 @@ def _job_row(job: CanonicalJobRecord, existing: CanonicalJobRecord | None, now: 
         "first_seen_at": first_seen.isoformat() if first_seen else now.isoformat(),
         "last_seen_at": now.isoformat(),
         "active": job.active,
+        "rejected": job.rejected,
+        "rejection_reasons": job.rejection_reasons or [],
         "fit_score": job.fit_score,
         "fit_category": job.fit_category.value if job.fit_category else None,
         "score_breakdown": job.score_breakdown.model_dump() if job.score_breakdown else {},
@@ -576,6 +579,8 @@ def _row_to_job(row: dict[str, Any]) -> CanonicalJobRecord:
         first_seen_at=parse_datetime(row.get("first_seen_at")),
         last_seen_at=parse_datetime(row.get("last_seen_at")),
         active=bool(row.get("active", True)),
+        rejected=bool(row.get("rejected", False)),
+        rejection_reasons=list(row.get("rejection_reasons") or []),
         fit_score=row.get("fit_score"),
         fit_category=FitCategory(row["fit_category"]) if row.get("fit_category") else None,
         score_breakdown=breakdown,

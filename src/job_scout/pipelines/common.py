@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from decimal import Decimal
 from typing import Any, Iterable
@@ -26,13 +27,31 @@ logger = logging.getLogger(__name__)
 
 
 def is_family_relevant(title: str, description: str, profile: dict[str, Any]) -> bool:
-    blob = normalise_key(f"{title} {description[:2500]}")
+    """Match family titles/keywords with token-set tolerance for inverted DPSA titles."""
+    title_key = normalise_key(title)
+    title_tokens = set(title_key.split())
+    blob = normalise_key(f"{title} {description or ''}")
     for family in (profile.get("job_families") or {}).values():
         for title_opt in family.get("titles") or []:
-            if normalise_key(title_opt) in blob:
+            opt = normalise_key(title_opt)
+            if not opt:
+                continue
+            if opt in title_key or opt in blob:
+                return True
+            opt_tokens = set(opt.split())
+            # "Engineer (Mechanical)" ↔ "Mechanical Engineer"
+            if opt_tokens and opt_tokens <= title_tokens:
+                return True
+            if len(opt_tokens) >= 2 and title_tokens and title_tokens <= opt_tokens:
                 return True
         for keyword in family.get("keywords") or []:
-            if normalise_key(keyword) in blob:
+            key = normalise_key(keyword)
+            if not key:
+                continue
+            if len(key) <= 3:
+                if re.search(rf"\b{re.escape(key)}\b", blob):
+                    return True
+            elif key in blob:
                 return True
     return False
 
@@ -110,9 +129,11 @@ def run_pipeline(
                     continue
                 if expected_work_mode != WorkMode.REMOTE and normalised.work_mode != expected_work_mode:
                     continue
-            if expected_work_mode == WorkMode.REMOTE and normalised.work_mode == WorkMode.UNKNOWN:
-                normalised.work_mode = WorkMode.REMOTE
+            # Do not coerce UNKNOWN → REMOTE: that skips salary/geo gates for office ATS roles.
+            if expected_work_mode and normalised.work_mode == WorkMode.UNKNOWN:
+                continue
             if not is_family_relevant(normalised.title, normalised.description, profile):
+                stats.rejected += 1
                 continue
             stats.relevant += 1
             decision = apply_hard_filters(normalised, profile=profile, policy=policy, fx=fx)
@@ -127,6 +148,8 @@ def run_pipeline(
                     stats.rejected_salary += 1
                 if any("remote_restricted" in reason or "country_not_in_target" in reason for reason in decision.reasons):
                     stats.rejected_geo += 1
+                # Persist rejects so digests and audits can see salary/geo drops.
+                repo.upsert_job(canonical, source_ref_from(normalised))
                 continue
             canonical = score_job(canonical, profile=profile, scoring=scoring)
             before = repo.get_by_fingerprint(canonical.canonical_fingerprint)

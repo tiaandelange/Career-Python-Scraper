@@ -6,6 +6,13 @@ currency_floors_monthly:
   USD: 4500
   EUR: 4000
 
+# DPSA OSD packages are annual CTC; Grade A production engineers are often below R840k.
+# Compare those against an annual public-service floor instead of the private R70k/month bar.
+public_service:
+  zar_annual_floor: 350000
+  source_names:
+    - dpsa_circular
+
 default_international_floor:
   currency: USD
   amount_monthly: 4500

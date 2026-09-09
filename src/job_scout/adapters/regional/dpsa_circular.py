@@ -126,7 +126,7 @@ class DpsaCircularAdapter(SourceAdapter):
             company=company,
             description_text=desc,
             description_html=None,
-            location_text=post.centre or "South Africa",
+            location_text=(f"{post.centre}, South Africa" if post.centre else "South Africa"),
             work_mode_hint="onsite",
             salary_text=post.salary_text,
             salary_currency="ZAR",

@@ -41,12 +41,21 @@ class Remote1stJobsAdapter(SourceAdapter):
 
     def parse_job(self, payload: dict[str, Any]) -> RawJobRecord:
         location = str(payload.get("location") or "Remote")
-        remote_hint = "remote" if "remote" in location.lower() else "remote"
+        location_l = location.lower()
+        if "hybrid" in location_l:
+            remote_hint = "hybrid"
+        elif "remote" in location_l or location_l.strip() in {"", "worldwide", "global", "anywhere"}:
+            remote_hint = "remote"
+        else:
+            remote_hint = None
+        url = str(payload.get("url") or "").strip()
+        if not url:
+            raise ValueError("remote1stjobs entry missing url")
         return RawJobRecord(
             source_name=self.source_name,
             source_type=self.source_type,
-            source_job_id=str(payload.get("url") or payload.get("title")),
-            source_url=str(payload.get("url") or ""),
+            source_job_id=url,
+            source_url=url,
             title=str(payload.get("title") or ""),
             company=payload.get("company"),
             description_html=payload.get("description"),
@@ -54,7 +63,7 @@ class Remote1stJobsAdapter(SourceAdapter):
             location_text=location,
             work_mode_hint=remote_hint,
             date_posted=parse_datetime(payload.get("created_at") or payload.get("published_at")),
-            apply_url=payload.get("url"),
+            apply_url=url,
             raw_payload={
                 "category": payload.get("category"),
                 "job_type": payload.get("job_type"),

@@ -40,6 +40,8 @@ def salary_decision(
     snapshot: SalarySnapshot,
     policy: dict[str, Any],
     fx: FxService | None = None,
+    *,
+    source_name: str | None = None,
 ) -> FilterDecision:
     rules = policy.get("rules") or {}
     requires_published = (
@@ -77,6 +79,23 @@ def salary_decision(
         floor, floor_currency, stale = floor_for(snapshot, policy, fx)
         compare = lower
         notes = []
+        public = policy.get("public_service") or {}
+        public_sources = {str(s) for s in (public.get("source_names") or [])}
+        if (
+            source_name in public_sources
+            and (snapshot.currency or "").upper() == "ZAR"
+            and snapshot.period == "annual"
+            and snapshot.min_amount is not None
+        ):
+            annual_floor = Decimal(str(public.get("zar_annual_floor") or 350000))
+            if snapshot.min_amount < annual_floor:
+                return FilterDecision(
+                    accepted=False,
+                    reasons=[
+                        f"salary_below_floor:{snapshot.min_amount} ZAR/year < {annual_floor} ZAR/year"
+                    ],
+                )
+            return FilterDecision(accepted=True, flags=["public_service_annual_floor"])
         if stale:
             notes.append("fx_rate_stale")
         if snapshot.currency and snapshot.currency.upper() != floor_currency:
@@ -169,7 +188,7 @@ def apply_hard_filters(
     decisions = [
         validity_decision(job, profile),
         geographic_decision(job, profile),
-        salary_decision(job.work_mode, job.salary, policy, fx),
+        salary_decision(job.work_mode, job.salary, policy, fx, source_name=job.raw.source_name),
     ]
     reasons: list[str] = []
     flags: list[str] = []

@@ -126,6 +126,8 @@ job_families:
       - Technical Manager
     keywords:
       - mechanical
+      - civil
+      - structural
       - piping
       - pipeline
       - pump
@@ -137,6 +139,8 @@ job_families:
       - rotating equipment
       - plant
       - infrastructure
+      - technologist
+      - works inspector
   project_management:
     weight: 0.9
     titles:

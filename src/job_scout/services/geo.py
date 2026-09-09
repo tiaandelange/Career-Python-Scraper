@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from job_scout.models.enums import RemoteScope
+from job_scout.models.enums import RemoteScope, SourcePreference
 from job_scout.models.job import GeoSnapshot, RawJobRecord
 from job_scout.utils.text import collapse_ws, normalise_key
 
@@ -126,6 +126,28 @@ SA_CITIES = {
     "soweto",
 }
 
+SA_PROVINCES = {
+    "gauteng",
+    "western cape",
+    "kwazulu natal",
+    "kwazulu-natal",
+    "eastern cape",
+    "free state",
+    "limpopo",
+    "mpumalanga",
+    "north west",
+    "northern cape",
+}
+
+SA_GENERIC_CENTRES = {
+    "head office",
+    "national",
+    "various",
+    "nationwide",
+    "republic of south africa",
+    "south african",
+}
+
 US_STATES = {
     "alabama": "AL",
     "alaska": "AK",
@@ -150,6 +172,10 @@ def country_from_text(text: str | None) -> str | None:
         if re.search(rf"\b{re.escape(alias)}\b", key):
             return code
     if any(city in key for city in SA_CITIES):
+        return "ZA"
+    if any(province in key for province in SA_PROVINCES):
+        return "ZA"
+    if any(centre in key for centre in SA_GENERIC_CENTRES):
         return "ZA"
     return None
 
@@ -314,6 +340,13 @@ def geo_from_raw(raw: RawJobRecord, description: str) -> GeoSnapshot:
     if not snapshot.country_code:
         snapshot.country_code = country_from_text(raw.location_text)
         snapshot.country_name = COUNTRY_NAMES.get(snapshot.country_code or "")
+    # DPSA / SA public-service posts are always ZA even when centre is "Head Office".
+    if not snapshot.country_code and (
+        raw.source_name == "dpsa_circular"
+        or (raw.source_preference == SourcePreference.GOVERNMENT and "south africa" in normalise_key(raw.company or ""))
+    ):
+        snapshot.country_code = "ZA"
+        snapshot.country_name = COUNTRY_NAMES.get("ZA")
     return snapshot
 
 

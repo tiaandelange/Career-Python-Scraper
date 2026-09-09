@@ -74,9 +74,18 @@ def classify_work_mode(
 
     if hint == WorkMode.HYBRID or hybrid:
         return WorkMode.HYBRID
-    if hint == WorkMode.REMOTE or remote:
+    if remote:
         if onsite and not hybrid:
-            # "remote site" already scrubbed; remaining onsite + remote => hybrid
+            return WorkMode.HYBRID
+        return WorkMode.REMOTE
+    if hint == WorkMode.REMOTE:
+        location_key = normalise_key(location or "")
+        # Board-level "remote" alone must not tag a Cape Town / Denver office post as WFH.
+        if location_key and not re.search(r"\bremote\b", location_key):
+            if onsite:
+                return WorkMode.ONSITE
+            return WorkMode.UNKNOWN
+        if onsite and not hybrid:
             return WorkMode.HYBRID
         return WorkMode.REMOTE
     if hint == WorkMode.ONSITE or onsite:
