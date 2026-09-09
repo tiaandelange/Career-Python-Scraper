@@ -21,7 +21,18 @@ logger = logging.getLogger(__name__)
 def run_all(memory: bool = False) -> dict:
     settings = get_settings()
     configure_logging(settings.job_scout_log_level)
+    if not memory and not settings.job_scout_dry_run and not settings.has_supabase():
+        raise RuntimeError(
+            "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are missing. "
+            "Add them as GitHub repository secrets (or use --memory)."
+        )
     repo = InMemoryJobRepository() if memory or settings.job_scout_dry_run else build_repository(settings)
+    try:
+        ping = repo.ping()
+        logger.info("Database ping: %s", ping)
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(f"Supabase unreachable or schema missing: {exc}") from exc
+
     fx_store = InMemoryFxStore()
     if hasattr(repo, "save_fx_rate") and not memory:
         fx_store = SupabaseFxStore(repo) if settings.has_supabase() and not memory else InMemoryFxStore()
@@ -32,9 +43,21 @@ def run_all(memory: bool = False) -> dict:
         logger.warning("FX refresh failed; conversions will use cache if present: %s", exc)
 
     t0 = time.perf_counter()
-    remote = run_remote_pipeline(repo, fx)
-    hybrid = run_hybrid_pipeline(repo, fx)
-    onsite = run_onsite_pipeline(repo, fx)
+    pipeline_errors: list[str] = []
+
+    def _safe(name: str, fn):
+        try:
+            return fn(repo, fx)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("%s pipeline failed", name)
+            pipeline_errors.append(f"{name}: {exc}")
+            from job_scout.models.job import PipelineStats
+
+            return PipelineStats(pipeline=name, failures=[str(exc)])
+
+    remote = _safe("remote", run_remote_pipeline)
+    hybrid = _safe("hybrid", run_hybrid_pipeline)
+    onsite = _safe("onsite", run_onsite_pipeline)
     runtime = round(time.perf_counter() - t0, 2)
     summary = {
         "remote": remote.model_dump(),
@@ -44,8 +67,11 @@ def run_all(memory: bool = False) -> dict:
         "accepted": remote.new + hybrid.new + onsite.new,
         "duplicates_merged": remote.duplicates_merged + hybrid.duplicates_merged + onsite.duplicates_merged,
         "rejected_salary": remote.rejected_salary + hybrid.rejected_salary + onsite.rejected_salary,
+        "pipeline_errors": pipeline_errors,
     }
     logger.info("Scrape summary: %s", json.dumps(summary, default=str))
+    if pipeline_errors:
+        raise RuntimeError("; ".join(pipeline_errors))
     return summary
 
 
@@ -56,18 +82,22 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     settings = get_settings()
     configure_logging(settings.job_scout_log_level)
-    if args.pipeline == "all":
-        run_all(memory=args.memory)
+    try:
+        if args.pipeline == "all":
+            run_all(memory=args.memory)
+            return 0
+        repo = InMemoryJobRepository() if args.memory else build_repository(settings)
+        fx = FxService(settings=settings)
+        if args.pipeline == "remote":
+            print(run_remote_pipeline(repo, fx).model_dump())
+        elif args.pipeline == "hybrid":
+            print(run_hybrid_pipeline(repo, fx).model_dump())
+        else:
+            print(run_onsite_pipeline(repo, fx).model_dump())
         return 0
-    repo = InMemoryJobRepository() if args.memory else build_repository(settings)
-    fx = FxService(settings=settings)
-    if args.pipeline == "remote":
-        print(run_remote_pipeline(repo, fx).model_dump())
-    elif args.pipeline == "hybrid":
-        print(run_hybrid_pipeline(repo, fx).model_dump())
-    else:
-        print(run_onsite_pipeline(repo, fx).model_dump())
-    return 0
+    except Exception:
+        logger.exception("Scrape failed")
+        return 1
 
 
 if __name__ == "__main__":

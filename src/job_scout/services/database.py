@@ -218,10 +218,38 @@ class SupabaseJobRepository:
         ).execute()
 
     def record_scrape_run(self, payload: dict[str, Any]) -> None:
-        self.client.table("scrape_runs").insert(_json_row(payload)).execute()
+        allowed = {
+            "started_at",
+            "ended_at",
+            "pipeline",
+            "source",
+            "status",
+            "jobs_seen",
+            "jobs_new",
+            "jobs_updated",
+            "jobs_rejected",
+            "error_information",
+            "duration_seconds",
+        }
+        row = _json_row({key: value for key, value in payload.items() if key in allowed})
+        self.client.table("scrape_runs").insert(row).execute()
 
     def record_source_health(self, payload: dict[str, Any]) -> None:
-        row = _json_row(payload)
+        allowed = {
+            "source",
+            "last_success",
+            "last_failure",
+            "consecutive_failures",
+            "response_status",
+            "error_summary",
+            "status",
+            "jobs_seen",
+            "updated_at",
+        }
+        filtered = {key: value for key, value in payload.items() if key in allowed}
+        if "updated_at" not in filtered:
+            filtered["updated_at"] = utcnow()
+        row = _json_row(filtered)
         self.client.table("source_health").upsert(row, on_conflict="source").execute()
 
     def record_digest_run(self, payload: dict[str, Any]) -> None:

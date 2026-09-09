@@ -29,12 +29,21 @@ jobs:
       JOB_SCOUT_LOG_LEVEL: INFO
       JOB_SCOUT_USER_AGENT: JobScout/1.0 (personal job search; GitHub Actions)
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
       - name: Install
         run: pip install -e .
+      - name: Verify Supabase secrets
+        run: |
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+            echo "Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY repository secrets."
+            exit 1
+          fi
+          echo "Supabase secrets are present."
+      - name: Health preflight
+        run: python -m job_scout health
       - name: Scrape all pipelines
         run: python -m job_scout scrape
