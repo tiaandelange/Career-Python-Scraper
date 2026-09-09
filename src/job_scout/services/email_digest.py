@@ -85,7 +85,9 @@ def select_digest_jobs(
             continue
         prev = previous_by_fp.get(job.canonical_fingerprint)
         is_new = job.last_notified_at is None
-        changed = job_changed_materially(prev, job) if not is_new else False
+        changed = bool(job.digest_pending_update)
+        if not changed and not is_new:
+            changed = job_changed_materially(prev, job)
         if is_new:
             new_ids.add(job.canonical_fingerprint)
             selected.append(job)
@@ -257,8 +259,8 @@ def _stats_table(summary: dict[str, int], health: dict[str, Any]) -> str:
     found = health.get("jobs_found", summary.get("found", 0))
     discarded = health.get("jobs_discarded", summary.get("discarded", 0))
     cells = [
-        _stat_cell("Total found", found, fg="#1d4ed8", bg="#eff6ff", border="#bfdbfe"),
-        _stat_cell("Discarded", discarded, fg="#4b5563", bg="#f3f4f6", border="#d1d5db"),
+        _stat_cell("Found (recent scrapes)", found, fg="#1d4ed8", bg="#eff6ff", border="#bfdbfe"),
+        _stat_cell("Discarded (recent)", discarded, fg="#4b5563", bg="#f3f4f6", border="#d1d5db"),
         _stat_cell("New", summary.get("new", 0), fg="#0f766e", bg="#f0fdfa", border="#99f6e4"),
         _stat_cell("Updated", summary.get("updated", 0), fg="#b45309", bg="#fff7ed", border="#fdba74"),
         _stat_cell("Remote", summary.get("remote", 0), fg="#0f6b4c", bg="#f3faf6", border="#c5ddd2"),
@@ -386,9 +388,11 @@ def render_digest_html(
 def subject_line(selection: DigestSelection, digest_date: date | None = None) -> str:
     digest_date = digest_date or utcnow().date()
     strong = selection.summary.get("exceptional", 0) + selection.summary.get("strong", 0)
-    if strong == 0:
-        strong = selection.summary.get("included", 0)
-    return f"Daily Job Scout — {strong} Strong Matches | {digest_date.strftime('%d %b %Y')}"
+    included = selection.summary.get("included", 0)
+    date_s = digest_date.strftime("%d %b %Y")
+    if strong > 0:
+        return f"Daily Job Scout — {strong} Strong Matches | {date_s}"
+    return f"Daily Job Scout — {included} Matches | {date_s}"
 
 
 def send_resend(subject: str, html_body: str, settings: Settings) -> dict[str, Any]:
@@ -468,13 +472,15 @@ def build_and_maybe_send(
         "subject": subject,
         "html": html_body,
         "jobs": [job.canonical_fingerprint for job in selection.jobs],
+        "returning_jobs": [job.canonical_fingerprint for job in selection.returning],
         "summary": selection.summary,
         "sent": False,
     }
     if send:
         send_resend(subject, html_body, settings)
         when = utcnow()
-        repo.mark_notified(result["jobs"], when)
+        # Mark both featured and still-open listings that appeared in this email.
+        repo.mark_notified([*result["jobs"], *result["returning_jobs"]], when)
         repo.record_digest_run(
             {
                 "digest_date": when.date(),

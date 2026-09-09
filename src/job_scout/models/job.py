@@ -168,6 +168,7 @@ class CanonicalJobRecord(BaseModel):
     direct_employer_url: str | None = None
     source_urls: list[str] = Field(default_factory=list)
     flags: list[str] = Field(default_factory=list)
+    digest_pending_update: bool = False
     rejected: bool = False
     rejection_reasons: list[str] = Field(default_factory=list)
 

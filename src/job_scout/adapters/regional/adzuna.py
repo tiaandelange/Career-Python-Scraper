@@ -15,6 +15,18 @@ from job_scout.utils.text import strip_html
 COUNTRIES = ("za", "us", "au", "de", "nl")
 QUERIES = ("mechanical engineer", "project manager", "pipeline engineer")
 
+_COUNTRY_CURRENCY = {
+    "za": "ZAR",
+    "us": "USD",
+    "au": "AUD",
+    "de": "EUR",
+    "nl": "EUR",
+}
+
+
+def _currency_for_country(country: str | None) -> str:
+    return _COUNTRY_CURRENCY.get((country or "").lower(), "USD")
+
 
 class AdzunaAdapter(SourceAdapter):
     source_name = "adzuna"
@@ -67,7 +79,7 @@ class AdzunaAdapter(SourceAdapter):
             location_text=location or None,
             salary_min=payload.get("salary_min"),
             salary_max=payload.get("salary_max"),
-            salary_currency="ZAR" if payload.get("_country") == "za" else ("AUD" if payload.get("_country") == "au" else "USD"),
+            salary_currency=_currency_for_country(payload.get("_country")),
             salary_period="annual",
             date_posted=parse_datetime(payload.get("created")),
             apply_url=payload.get("redirect_url"),

@@ -112,12 +112,16 @@ class DpsaCircularAdapter(SourceAdapter):
     def _to_raw(self, post: Any, circular_url: str) -> RawJobRecord:
         company = post.department_hint or "South African Public Service"
         desc = post.body
-        apply_url = post.source_pdf_url
+        # Unique per-post URLs so DuplicateIndex does not collapse a whole PDF into one job.
+        year_match = re.search(r"/vacancies/(\d{4})/", post.source_pdf_url or "")
+        year = year_match.group(1) if year_match else "unknown"
+        source_job_id = f"{year}-{post.post_id}"
+        post_url = f"{post.source_pdf_url}#post-{post.post_id}"
         return RawJobRecord(
             source_name=self.source_name,
             source_type=self.source_type,
-            source_job_id=post.post_id,
-            source_url=circular_url,
+            source_job_id=source_job_id,
+            source_url=post_url,
             title=post.title,
             company=company,
             description_text=desc,
@@ -129,12 +133,13 @@ class DpsaCircularAdapter(SourceAdapter):
             salary_period="annual",
             closing_date=post.closing_date,
             date_posted=utcnow(),
-            apply_url=apply_url,
-            direct_employer_url=apply_url,
+            apply_url=post_url,
+            direct_employer_url=post_url,
             raw_payload={
                 "ref_no": post.ref_no,
                 "pdf": post.source_pdf_url,
                 "circular": circular_url,
+                "post_id": post.post_id,
             },
             source_preference=SourcePreference.GOVERNMENT,
         )

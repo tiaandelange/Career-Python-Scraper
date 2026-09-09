@@ -74,6 +74,10 @@ class InMemoryJobRepository:
             job.source_urls = list(dict.fromkeys([*job.source_urls, source.source_url]))
         job.apply_url = job.apply_url or source.source_url or source.direct_employer_url
         job.direct_employer_url = job.direct_employer_url or source.direct_employer_url or source.source_url
+        if existing and existing.last_notified_at and _material_digest_change(existing, job):
+            job.digest_pending_update = True
+        elif existing:
+            job.digest_pending_update = existing.digest_pending_update
         job.last_seen_at = now
         self.jobs[job.canonical_fingerprint] = job
         self.sources.setdefault(job.canonical_fingerprint, [])
@@ -100,6 +104,7 @@ class InMemoryJobRepository:
             job = self.jobs.get(fp)
             if job:
                 job.last_notified_at = when
+                job.digest_pending_update = False
 
     def record_scrape_run(self, payload: dict[str, Any]) -> None:
         self.scrape_runs.append(payload)
@@ -157,11 +162,14 @@ class InMemoryJobRepository:
         return expired
 
     def recent_scrape_totals(self) -> dict[str, int]:
-        runs = [row for row in self.scrape_runs if row.get("source") == "all"][-9:]
+        runs = [row for row in self.scrape_runs if row.get("source") == "all"]
+        if not runs:
+            return {"jobs_found": 0, "jobs_discarded": 0, "jobs_new": 0}
+        row = runs[-1]
         return {
-            "jobs_found": sum(int(row.get("jobs_seen") or 0) for row in runs),
-            "jobs_discarded": sum(int(row.get("jobs_rejected") or 0) for row in runs),
-            "jobs_new": sum(int(row.get("jobs_new") or 0) for row in runs),
+            "jobs_found": int(row.get("jobs_seen") or 0),
+            "jobs_discarded": int(row.get("jobs_rejected") or 0),
+            "jobs_new": int(row.get("jobs_new") or 0),
         }
 
 
@@ -239,40 +247,51 @@ class SupabaseJobRepository:
         return self._hydrate_apply_urls(jobs)
 
     def _hydrate_apply_urls(self, jobs: list[CanonicalJobRecord]) -> list[CanonicalJobRecord]:
-        """Attach apply/source URLs from job_sources (jobs table does not store them)."""
+        """Attach apply/source URLs from job_sources (and jobs columns when present)."""
         ids = [str(job.id) for job in jobs if job.id]
         if not ids:
             return jobs
+        rows: list[dict[str, Any]] = []
+        chunk_size = 80
         try:
-            result = self.client.table("job_sources").select("*").in_("job_id", ids).execute()
+            for start in range(0, len(ids), chunk_size):
+                chunk = ids[start : start + chunk_size]
+                result = self.client.table("job_sources").select("*").in_("job_id", chunk).execute()
+                rows.extend(result.data or [])
         except Exception as exc:  # noqa: BLE001
             logger.warning("Could not hydrate job_sources URLs: %s", exc)
             return jobs
         by_job: dict[str, list[dict[str, Any]]] = {}
-        for row in result.data or []:
+        for row in rows:
             by_job.setdefault(str(row.get("job_id")), []).append(row)
         for job in jobs:
             if not job.id:
                 continue
-            rows = by_job.get(str(job.id)) or []
-            if not rows:
+            src_rows = by_job.get(str(job.id)) or []
+            if not src_rows:
                 continue
-            urls = [str(r.get("source_url")) for r in rows if r.get("source_url")]
-            directs = [str(r.get("direct_employer_url")) for r in rows if r.get("direct_employer_url")]
+            urls = [str(r.get("source_url")) for r in src_rows if r.get("source_url")]
+            directs = [str(r.get("direct_employer_url")) for r in src_rows if r.get("direct_employer_url")]
             if urls:
                 job.source_urls = list(dict.fromkeys([*(job.source_urls or []), *urls]))
             if not job.apply_url:
-                job.apply_url = urls[0] if urls else (directs[0] if directs else None)
+                job.apply_url = next(
+                    (u for u in [*urls, *directs] if u.startswith("http") and "api.smartrecruiters.com" not in u),
+                    urls[0] if urls else (directs[0] if directs else None),
+                )
             if not job.direct_employer_url:
-                job.direct_employer_url = directs[0] if directs else (urls[0] if urls else None)
+                job.direct_employer_url = next(
+                    (u for u in [*directs, *urls] if u.startswith("http") and "api.smartrecruiters.com" not in u),
+                    directs[0] if directs else (urls[0] if urls else None),
+                )
         return jobs
 
     def mark_notified(self, fingerprints: list[str], when: datetime) -> None:
         if not fingerprints:
             return
-        self.client.table("jobs").update({"last_notified_at": when.isoformat()}).in_(
-            "canonical_fingerprint", fingerprints
-        ).execute()
+        self.client.table("jobs").update(
+            {"last_notified_at": when.isoformat(), "digest_pending_update": False}
+        ).in_("canonical_fingerprint", fingerprints).execute()
 
     def record_scrape_run(self, payload: dict[str, Any]) -> None:
         allowed = {
@@ -416,14 +435,17 @@ class SupabaseJobRepository:
             .select("jobs_seen,jobs_rejected,jobs_new,source")
             .eq("source", "all")
             .order("ended_at", desc=True)
-            .limit(9)
+            .limit(1)
             .execute()
         )
         rows = result.data or []
+        if not rows:
+            return {"jobs_found": 0, "jobs_discarded": 0, "jobs_new": 0}
+        row = rows[0]
         return {
-            "jobs_found": sum(int(row.get("jobs_seen") or 0) for row in rows),
-            "jobs_discarded": sum(int(row.get("jobs_rejected") or 0) for row in rows),
-            "jobs_new": sum(int(row.get("jobs_new") or 0) for row in rows),
+            "jobs_found": int(row.get("jobs_seen") or 0),
+            "jobs_discarded": int(row.get("jobs_rejected") or 0),
+            "jobs_new": int(row.get("jobs_new") or 0),
         }
 
 
@@ -435,8 +457,29 @@ def build_repository(settings: Settings | None = None) -> JobRepository:
     return InMemoryJobRepository()
 
 
+def _material_digest_change(existing: CanonicalJobRecord, incoming: CanonicalJobRecord) -> bool:
+    if (existing.salary.raw_text or "") != (incoming.salary.raw_text or ""):
+        return True
+    if existing.closing_date != incoming.closing_date and incoming.closing_date:
+        return True
+    if (existing.apply_url or "") != (incoming.apply_url or "") and incoming.apply_url:
+        return True
+    if (existing.direct_employer_url or "") != (incoming.direct_employer_url or "") and incoming.direct_employer_url:
+        return True
+    if (
+        existing.fit_score is not None
+        and incoming.fit_score is not None
+        and incoming.fit_score - existing.fit_score >= 8
+    ):
+        return True
+    return False
+
+
 def _job_row(job: CanonicalJobRecord, existing: CanonicalJobRecord | None, now: datetime) -> dict[str, Any]:
     first_seen = (existing.first_seen_at if existing else now)
+    pending = bool(job.digest_pending_update)
+    if existing and existing.last_notified_at and _material_digest_change(existing, job):
+        pending = True
     return {
         "id": str(existing.id if existing and existing.id else job.id or uuid4()),
         "canonical_fingerprint": job.canonical_fingerprint,
@@ -472,6 +515,14 @@ def _job_row(job: CanonicalJobRecord, existing: CanonicalJobRecord | None, now: 
         "visa_sponsorship": job.mobility.visa_sponsorship,
         "relocation_assistance": job.mobility.relocation_assistance,
         "work_authorisation_notes": job.mobility.work_authorisation_notes,
+        "apply_url": job.apply_url,
+        "direct_employer_url": job.direct_employer_url,
+        "digest_pending_update": pending,
+        "last_notified_at": (
+            existing.last_notified_at.isoformat()
+            if existing and existing.last_notified_at
+            else (job.last_notified_at.isoformat() if job.last_notified_at else None)
+        ),
         "updated_at": now.isoformat(),
     }
 
@@ -533,6 +584,7 @@ def _row_to_job(row: dict[str, Any]) -> CanonicalJobRecord:
         last_notified_at=parse_datetime(row.get("last_notified_at")),
         apply_url=row.get("apply_url"),
         direct_employer_url=row.get("direct_employer_url"),
+        digest_pending_update=bool(row.get("digest_pending_update")),
     )
 
 

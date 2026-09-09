@@ -70,7 +70,7 @@ def test_html_has_three_sections_in_order():
     h = html.find("HYBRID")
     o = html.find("ON-SITE")
     assert r < h < o
-    assert "Total found" in html
+    assert "Total found" in html or "Found (recent" in html
     assert "Discarded" in html
     assert "Perfect match" in html
     assert "#1d4ed8" in html  # total found blue

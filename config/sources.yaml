@@ -118,7 +118,7 @@ sources:
     notes: Public postings JSON. Verified water/utility consulting boards only.
 
   ashby:
-    enabled: true
+    enabled: false
     adapter: job_scout.adapters.ats.ashby:AshbyAdapter
     source_type: ats
     pipelines: [remote, hybrid, onsite]
@@ -130,7 +130,7 @@ sources:
     javascript_required: false
     salary_often_available: true
     employers: []
-    notes: Enabled with an empty employer list until verified slugs are added.
+    notes: Disabled until verified employer slugs are added.
 
   smartrecruiters:
     enabled: true
@@ -152,7 +152,7 @@ sources:
     notes: Verified water/dams consulting boards. Caps pages to limit Actions minutes (AECOM is large).
 
   workable:
-    enabled: true
+    enabled: false
     adapter: job_scout.adapters.ats.workable:WorkableAdapter
     source_type: ats
     pipelines: [remote, hybrid, onsite]
@@ -164,7 +164,7 @@ sources:
     javascript_required: false
     salary_often_available: false
     employers: []
-    notes: Public widget JSON. Empty employer list until slugs are verified.
+    notes: Disabled until verified employer slugs are added.
 
   eures:
     enabled: true

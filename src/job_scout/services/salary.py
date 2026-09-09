@@ -42,6 +42,13 @@ _PERIOD_ALIASES = {
     "fy": "annual",
     "per year": "annual",
     "per annum": "annual",
+    "biweekly": "biweekly",
+    "bi-weekly": "biweekly",
+    "fortnightly": "biweekly",
+    "every two weeks": "biweekly",
+    "twice monthly": "semimonthly",
+    "semi-monthly": "semimonthly",
+    "semimonthly": "semimonthly",
 }
 
 _CURRENCY_WORDS = {
@@ -191,7 +198,12 @@ def to_monthly(
         if hours_per_week is None:
             return None
         return ((amount * hours_per_week * weeks) / Decimal("12")).quantize(Decimal("0.01"))
-    return amount
+    if period == "biweekly":
+        return ((amount * Decimal("26")) / Decimal("12")).quantize(Decimal("0.01"))
+    if period == "semimonthly":
+        return (amount * Decimal("2")).quantize(Decimal("0.01"))
+    # Unknown period — do not invent a monthly figure.
+    return None
 
 
 def _salary_numbers(raw: str, *, hours_per_week: Decimal | None) -> list[Decimal]:

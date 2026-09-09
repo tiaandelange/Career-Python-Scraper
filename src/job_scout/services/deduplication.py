@@ -22,8 +22,24 @@ PREFERENCE_RANK = {
 def canonical_url(url: str | None) -> str:
     if not url:
         return ""
-    text = url.strip().lower().split("?", 1)[0].split("#", 1)[0]
+    text = url.strip().lower().split("?", 1)[0]
+    # Keep fragments — DPSA posts share a PDF URL and disambiguate with #POST-id.
+    if "#" in text:
+        base, frag = text.split("#", 1)
+        return f"{base.rstrip('/')}" + (f"#{frag}" if frag else "")
     return text.rstrip("/")
+
+
+def _shared_document_url(url: str | None) -> bool:
+    """True when URL is a circular/PDF/list page that many posts share (must not dedupe on it)."""
+    if not url:
+        return False
+    lowered = url.lower().split("#", 1)[0]
+    if lowered.endswith(".pdf"):
+        return True
+    if "dpsa.gov.za" in lowered and ("/psvc" in lowered or "/vacancies/" in lowered):
+        return True
+    return False
 
 
 def identifier_key(source_name: str, source_job_id: str) -> str:
@@ -65,12 +81,22 @@ class DuplicateIndex:
         return merged
 
     def _find(self, job: CanonicalJobRecord, ref: JobSourceRef) -> str | None:
-        for url in filter(None, [canonical_url(ref.direct_employer_url), canonical_url(ref.source_url), canonical_url(job.apply_url)]):
-            if url in self.by_url:
-                return self.by_url[url]
+        # Prefer source ids before shared document URLs (DPSA section PDFs, circular pages).
         ident = identifier_key(ref.source_name, ref.source_job_id)
         if ident in self.by_source_id:
             return self.by_source_id[ident]
+        for url in filter(
+            None,
+            [
+                canonical_url(ref.direct_employer_url),
+                canonical_url(ref.source_url),
+                canonical_url(job.apply_url),
+            ],
+        ):
+            if _shared_document_url(url):
+                continue
+            if url in self.by_url:
+                return self.by_url[url]
         if job.canonical_fingerprint in self.by_fingerprint:
             return self.by_fingerprint[job.canonical_fingerprint]
         for key, existing in self.jobs.items():
@@ -79,7 +105,16 @@ class DuplicateIndex:
         return None
 
     def _index(self, job: CanonicalJobRecord, ref: JobSourceRef, key: str) -> None:
-        for url in filter(None, [canonical_url(ref.direct_employer_url), canonical_url(ref.source_url), canonical_url(job.apply_url)]):
+        for url in filter(
+            None,
+            [
+                canonical_url(ref.direct_employer_url),
+                canonical_url(ref.source_url),
+                canonical_url(job.apply_url),
+            ],
+        ):
+            if _shared_document_url(url):
+                continue
             self.by_url[url] = key
         self.by_source_id[identifier_key(ref.source_name, ref.source_job_id)] = key
         self.by_fingerprint[job.canonical_fingerprint] = key
@@ -103,6 +138,26 @@ def _fuzzy_duplicate(a: CanonicalJobRecord, b: CanonicalJobRecord) -> bool:
     return True
 
 
+def _salary_more_complete(incoming, existing) -> bool:
+    """Prefer a published salary that has more structured fields filled in."""
+    def score(snap) -> int:
+        return sum(
+            1
+            for value in (
+                snap.min_monthly,
+                snap.max_monthly,
+                snap.min_amount,
+                snap.max_amount,
+                snap.currency,
+                snap.period,
+                snap.raw_text,
+            )
+            if value not in (None, "")
+        )
+
+    return score(incoming) > score(existing)
+
+
 def merge_jobs(
     preferred: CanonicalJobRecord,
     incoming: CanonicalJobRecord,
@@ -112,13 +167,17 @@ def merge_jobs(
     current_rank = min((PREFERENCE_RANK.get(r.source_preference, 9) for r in existing_refs), default=9)
     incoming_rank = PREFERENCE_RANK.get(new_ref.source_preference, 9)
     base, other = (incoming, preferred) if incoming_rank < current_rank else (preferred, incoming)
-    if incoming.salary.published and (
-        not base.salary.published
-        or (incoming.salary.raw_text and incoming.salary.raw_text != (base.salary.raw_text or ""))
-    ):
+    if incoming.salary.published and not base.salary.published:
         base.salary = incoming.salary
     elif other.salary.published and not base.salary.published:
         base.salary = other.salary
+    elif (
+        incoming.salary.published
+        and base.salary.published
+        and incoming_rank <= current_rank
+        and _salary_more_complete(incoming.salary, base.salary)
+    ):
+        base.salary = incoming.salary
     if incoming.direct_employer_url and not base.direct_employer_url:
         base.direct_employer_url = incoming.direct_employer_url
     if incoming.closing_date and not base.closing_date:

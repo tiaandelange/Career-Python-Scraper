@@ -53,7 +53,7 @@ class ReliefWebAdapter(SourceAdapter):
             source_job_id=str(payload.get("id") or payload.get("link")),
             source_url=str(payload.get("link") or ""),
             title=str(payload.get("title") or ""),
-            company=payload.get("author") or None,
+            company=payload.get("author") or "ReliefWeb listing",
             description_html=summary or None,
             description_text=text or None,
             location_text=country,
