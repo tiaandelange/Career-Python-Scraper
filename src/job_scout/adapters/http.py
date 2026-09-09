@@ -91,6 +91,9 @@ class HttpClient:
             entries.append(dict(entry))
         return entries
 
+    def get_bytes(self, url: str, **kwargs: Any) -> bytes:
+        return self.request("GET", url, **kwargs).content
+
     def get_soup(self, url: str, **kwargs: Any) -> BeautifulSoup:
         return BeautifulSoup(self.get_text(url, **kwargs), "lxml")
 

@@ -30,6 +30,7 @@ def normalise_job(raw: RawJobRecord) -> NormalisedJobRecord:
         max_amount=raw.salary_max,
         currency=raw.salary_currency,
         period=raw.salary_period,
+        context=description,
     )
     mobility = extract_mobility(raw.title, description, raw)
     company_norm = company_key(raw.company) or None

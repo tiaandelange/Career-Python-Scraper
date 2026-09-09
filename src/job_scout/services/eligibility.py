@@ -61,6 +61,13 @@ def salary_decision(
     if snapshot.published:
         lower = lower_bound_monthly(snapshot)
         if lower is None:
+            if snapshot.period == "hourly" and snapshot.hours_per_week is None:
+                if work_mode in {WorkMode.ONSITE, WorkMode.HYBRID}:
+                    return FilterDecision(
+                        accepted=False,
+                        reasons=["hourly_salary_hours_unknown_cannot_verify_floor"],
+                    )
+                return FilterDecision(accepted=True, flags=["hourly_without_stated_hours"])
             if work_mode in {WorkMode.ONSITE, WorkMode.HYBRID}:
                 return FilterDecision(
                     accepted=False,

@@ -21,6 +21,7 @@ dependencies = [
   "supabase>=2.6",
   "python-dateutil>=2.9",
   "lxml>=5.2",
+  "pypdf>=5.0",
 ]
 
 [project.optional-dependencies]

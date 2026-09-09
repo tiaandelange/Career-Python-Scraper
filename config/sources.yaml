@@ -95,8 +95,10 @@ sources:
     auth_required: false
     javascript_required: false
     salary_often_available: false
-    employers: []
-    notes: Public boards API. Add verified board tokens only. Guessed engineering-firm slugs 404'd and were removed.
+    employers:
+      - {name: MacKay / Engineering Analytics, slug: mackaysposito}
+      - {name: BGE Inc, slug: bgeinc}
+    notes: Public boards API. Verified water/dams/pipeline boards only.
 
   lever:
     enabled: true
@@ -110,8 +112,10 @@ sources:
     auth_required: false
     javascript_required: false
     salary_often_available: false
-    employers: []
-    notes: Public postings JSON. Add verified Lever site slugs only.
+    employers:
+      - {name: Woodard & Curran, slug: woodardcurran}
+      - {name: Stanley Consultants, slug: stanleygroup}
+    notes: Public postings JSON. Verified water/utility consulting boards only.
 
   ashby:
     enabled: true
@@ -140,8 +144,12 @@ sources:
     auth_required: false
     javascript_required: false
     salary_often_available: false
-    employers: []
-    notes: Public company postings API with offset pagination. Add verified company identifiers only.
+    max_pages: 2
+    employers:
+      - {name: AECOM, slug: AECOM2}
+      - {name: Ingerop, slug: Ingrop}
+      - {name: Ramboll, slug: Ramboll3}
+    notes: Verified water/dams consulting boards. Caps pages to limit Actions minutes (AECOM is large).
 
   workable:
     enabled: true
@@ -187,6 +195,53 @@ sources:
     salary_often_available: false
     notes: Public European job-board JSON API. No key.
 
+  reliefweb:
+    enabled: true
+    adapter: job_scout.adapters.regional.reliefweb:ReliefWebAdapter
+    source_type: rss
+    pipelines: [hybrid, onsite, remote]
+    regions: [global, ZA, EU, AU, US]
+    coverage: {remote: true, hybrid: true, onsite: true}
+    preference: specialist_board
+    free: true
+    auth_required: false
+    javascript_required: false
+    salary_often_available: false
+    notes: Official ReliefWeb jobs RSS (WASH / humanitarian / infrastructure). REST jobs API returned 410; RSS verified 200.
+
+  remote1stjobs:
+    enabled: true
+    adapter: job_scout.adapters.remote.remote1stjobs:Remote1stJobsAdapter
+    source_type: api
+    pipelines: [remote]
+    regions: [global, EU]
+    coverage: {remote: true, hybrid: false, onsite: false}
+    preference: specialist_board
+    free: true
+    auth_required: false
+    javascript_required: false
+    salary_often_available: false
+    notes: Public jobs.json dump. Broad remote feed; family filter keeps mechanical/infra hits.
+
+  dpsa_circular:
+    enabled: true
+    adapter: job_scout.adapters.regional.dpsa_circular:DpsaCircularAdapter
+    source_type: html
+    pipelines: [onsite, hybrid]
+    regions: [ZA]
+    coverage: {remote: false, hybrid: true, onsite: true}
+    preference: government
+    free: true
+    auth_required: false
+    javascript_required: false
+    salary_often_available: true
+    max_circulars: 2
+    notes: >
+      Weekly DPSA Public Service Vacancy Circular section PDFs (e.g. Limpopo s.pdf).
+      Parses annual ZAR salaries (OSD grades). Filters to engineering/infra keywords.
+      National DWS and provincial Engineering Services posts appear here when advertised.
+      limpopo.gov / dws.gov career HTML pages are not used — vacancies route via DPSA.
+
   usajobs:
     enabled: false
     adapter: job_scout.adapters.regional.usajobs:UsaJobsAdapter
@@ -220,6 +275,16 @@ disabled_not_implemented:
     reason: ToS / anti-bot. Not a project dependency.
   indeed:
     reason: ToS / anti-bot. Not a project dependency.
+  teachaway:
+    reason: Teacher niche only; no official public jobs API/RSS for this candidate profile.
+  facebook:
+    reason: Meta login / anti-bot; no free personal jobs API.
+  sa_gov_gazette:
+    reason: Gazette notices are not a stable vacancy API; engineer posts are covered via DPSA circular PDFs.
+  limpopo_gov_site:
+    reason: Provincial marketing site; vacancies are published through DPSA circular section PDFs.
+  dws_gov_careers:
+    reason: DWS vacancies.aspx is not a usable job feed; DWS posts appear in DPSA circulars when advertised.
   pnet:
     reason: No official public API; HTML is JS-heavy and not permitted automation.
   careerjunction:
@@ -228,8 +293,14 @@ disabled_not_implemented:
     reason: No official public API; commercial ToS restrict scraping.
   glassdoor:
     reason: Estimates are forbidden as salary evidence; site is anti-bot.
-  dpsa_circular:
-    reason: Weekly PDF circular, not a stable job JSON/RSS API. Manual review only.
+  devex:
+    reason: Member job-posting API, not free public retrieval of listings.
+  rigzone:
+    reason: News RSS only; jobs require scraping or paid tooling.
+  careermine:
+    reason: jobsrss endpoint returns bot-check HTML, not a usable feed.
+  un_careers:
+    reason: Published jobfeed URL returns SPA HTML, not RSS/XML.
   aps_jobs:
     reason: Salesforce/JS career site; would need browser automation.
   workday:

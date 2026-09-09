@@ -9,6 +9,24 @@ def test_salary_label_remote_missing():
     assert "Not published — allowed because role is fully remote" in salary_label(job)
 
 
+def test_salary_label_hourly_part_time():
+    from decimal import Decimal
+
+    from job_scout.models.job import SalarySnapshot
+    from job_scout.services.salary import parse_salary_text
+
+    job = canonical_job(work_mode=WorkMode.REMOTE, title="Clean Energy Mechanical Design Engineer")
+    job.salary = parse_salary_text(
+        "USD 80-130 per hour",
+        context="±15 hours a week remote contract",
+    )
+    label = salary_label(job)
+    assert "per hour" in label
+    assert "15 hours/week" in label
+    assert "40" not in label
+
+
+
 def test_select_skips_already_notified_unchanged(repo=None):
     from job_scout.utils.dates import utcnow
 

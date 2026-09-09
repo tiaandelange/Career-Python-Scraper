@@ -14,6 +14,7 @@ from job_scout.config.settings import Settings, get_settings, load_scoring
 from job_scout.models.enums import FitCategory, WorkMode
 from job_scout.models.job import CanonicalJobRecord
 from job_scout.services.database import JobRepository
+from job_scout.services.salary import format_salary_for_display
 from job_scout.utils.dates import utcnow
 
 logger = logging.getLogger(__name__)
@@ -35,15 +36,7 @@ def salary_label(job: CanonicalJobRecord) -> str:
         return "Salary: Not published — allowed because role is fully remote"
     if not job.salary.published:
         return "Salary: Not published"
-    text = job.salary.raw_text or ""
-    monthly = ""
-    if job.salary.min_monthly:
-        currency = job.salary.currency or ""
-        monthly = f" (≈ {currency} {job.salary.min_monthly}/month"
-        if job.salary.max_monthly and job.salary.max_monthly != job.salary.min_monthly:
-            monthly += f"–{job.salary.max_monthly}"
-        monthly += ")"
-    return f"Salary: {text}{monthly}".strip()
+    return format_salary_for_display(job.salary)
 
 
 def job_changed_materially(previous: CanonicalJobRecord | None, current: CanonicalJobRecord) -> bool:

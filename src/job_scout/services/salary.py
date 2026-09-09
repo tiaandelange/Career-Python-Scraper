@@ -1,4 +1,4 @@
-"""Parse employer-published salary text. Never invent a lower bound."""
+"""Parse employer-published salary text. Never invent a lower bound or hours."""
 
 from __future__ import annotations
 
@@ -15,6 +15,8 @@ _PERIOD_ALIASES = {
     "ph": "hourly",
     "/h": "hourly",
     "/hr": "hourly",
+    "per hour": "hourly",
+    "an hour": "hourly",
     "day": "daily",
     "daily": "daily",
     "pd": "daily",
@@ -66,19 +68,15 @@ _CURRENCY_WORDS = {
     "pln": "PLN",
 }
 
-_SYMBOLS = {
-    "€": "EUR",
-    "£": "GBP",
-    "r": "ZAR",
-    "a$": "AUD",
-    "au$": "AUD",
-    "c$": "CAD",
-    "nz$": "NZD",
-    "$": "USD",
-}
-
 _NUMBER = r"(?:(?:\d{1,3}(?:[ ,]\d{3})+|\d+)(?:[.,]\d+)?|\d+(?:\.\d+)?)\s*[kKmM]?"
 _RANGE_SEP = r"(?:\s*(?:-|–|—|to|and)\s*)"
+_HOURS_PATTERNS = (
+    r"(?:±|~|approx(?:imately)?|about|around|circa)?\s*(\d{1,2}(?:[.,]\d+)?)\s*"
+    r"(?:hours?|hrs?|h)\s*(?:a|per|/)\s*week",
+    r"(\d{1,2}(?:[.,]\d+)?)\s*h(?:ours?|rs?)?\s*/\s*w(?:eek)?",
+    r"(\d{1,2}(?:[.,]\d+)?)\s*hrs?\s*p/?w\b",
+    r"(\d{1,2}(?:[.,]\d+)?)\s*hours?\s*weekly",
+)
 
 
 def _to_decimal(raw: str) -> Decimal | None:
@@ -113,7 +111,7 @@ def detect_currency(text: str, explicit: str | None = None) -> str | None:
         return "EUR"
     if "£" in text or "gbp" in lowered:
         return "GBP"
-    if "$" in text:
+    if "$" in text or "us$" in lowered:
         if re.search(r"\b(australia|aud)\b", lowered):
             return "AUD"
         if re.search(r"\b(canada|cad)\b", lowered):
@@ -129,19 +127,56 @@ def detect_period(text: str, explicit: str | None = None) -> str:
         key = explicit.lower().strip().replace(".", "")
         return _PERIOD_ALIASES.get(key, key)
     lowered = text.lower()
+    # Prefer explicit hourly / daily cues before generic "week" noise.
+    for alias in ("per hour", "an hour", "/hr", "/h", "hourly", "ph"):
+        if alias in lowered:
+            return "hourly"
     for alias, period in sorted(_PERIOD_ALIASES.items(), key=lambda item: -len(item[0])):
         if alias in lowered:
             return period
-    # Bare South African "R70,000" in recruitment ads is typically monthly.
     if detect_currency(text) == "ZAR" and re.search(r"\bR?\s?\d", text) and "year" not in lowered:
         return "monthly"
     return "annual"
 
 
-def to_monthly(amount: Decimal, period: str, policy: dict[str, Any] | None = None) -> Decimal:
+def extract_hours_per_week(*texts: str | None) -> Decimal | None:
+    blob = " ".join(t for t in texts if t)
+    if not blob:
+        return None
+    lowered = blob.lower().replace("±", "~")
+    for pattern in _HOURS_PATTERNS:
+        match = re.search(pattern, lowered, flags=re.IGNORECASE)
+        if not match:
+            continue
+        value = _to_decimal(match.group(1).replace(",", "."))
+        if value is None:
+            continue
+        if Decimal("1") <= value <= Decimal("80"):
+            return value
+    return None
+
+
+def employment_basis_for(period: str | None) -> str:
+    mapping = {
+        "hourly": "hourly",
+        "daily": "daily",
+        "weekly": "weekly",
+        "monthly": "monthly_fixed",
+        "annual": "annual",
+    }
+    return mapping.get(period or "", "unknown")
+
+
+def to_monthly(
+    amount: Decimal,
+    period: str,
+    *,
+    hours_per_week: Decimal | None = None,
+    policy: dict[str, Any] | None = None,
+) -> Decimal | None:
+    """Convert to monthly only when the conversion does not invent missing hours."""
     policy = policy or {}
-    norm = (policy.get("normalisation") or {})
-    hours = Decimal(str(norm.get("hourly_hours_per_week", 40)))
+    norm = policy.get("normalisation") or {}
     days = Decimal(str(norm.get("daily_days_per_week", 5)))
     weeks = Decimal(str(norm.get("weeks_per_year", 52)))
     if period == "monthly":
@@ -153,13 +188,46 @@ def to_monthly(amount: Decimal, period: str, policy: dict[str, Any] | None = Non
     if period == "daily":
         return ((amount * days * weeks) / Decimal("12")).quantize(Decimal("0.01"))
     if period == "hourly":
-        return ((amount * hours * weeks) / Decimal("12")).quantize(Decimal("0.01"))
+        if hours_per_week is None:
+            return None
+        return ((amount * hours_per_week * weeks) / Decimal("12")).quantize(Decimal("0.01"))
     return amount
 
 
-def parse_salary_text(text: str | None, *, currency: str | None = None, period: str | None = None) -> SalarySnapshot:
+def _salary_numbers(raw: str, *, hours_per_week: Decimal | None) -> list[Decimal]:
+    numbers: list[Decimal] = []
+    for match in re.finditer(_NUMBER, raw):
+        value = _to_decimal(match.group(0))
+        if value is None or value <= 0:
+            continue
+        # Don't treat "15 hours/week" as a pay figure.
+        if hours_per_week is not None and value == hours_per_week:
+            trailing = raw[match.end() : match.end() + 24].lower()
+            if re.match(r"\s*(?:hours?|hrs?|h)\b", trailing) or "week" in trailing[:20]:
+                continue
+        numbers.append(value)
+    return numbers
+
+
+def parse_salary_text(
+    text: str | None,
+    *,
+    currency: str | None = None,
+    period: str | None = None,
+    context: str | None = None,
+    policy: dict[str, Any] | None = None,
+) -> SalarySnapshot:
     if not text or not str(text).strip():
-        return SalarySnapshot(published=False)
+        # Hours may still appear only in the description.
+        hours_only = extract_hours_per_week(context)
+        if hours_only is None:
+            return SalarySnapshot(published=False)
+        return SalarySnapshot(
+            published=False,
+            hours_per_week=hours_only,
+            parse_notes=["hours_found_without_salary"],
+        )
+
     raw = str(text).strip()
     notes: list[str] = []
     lowered = raw.lower()
@@ -167,6 +235,7 @@ def parse_salary_text(text: str | None, *, currency: str | None = None, period: 
         notes.append("ignored_third_party_estimate")
         return SalarySnapshot(published=False, raw_text=raw, estimated=True, parse_notes=notes)
 
+    hours = extract_hours_per_week(raw, context)
     currency_code = detect_currency(raw, currency)
     period_code = detect_period(raw, period)
     up_to = bool(re.search(r"\b(up to|upto|maximum of|max(?:imum)?)\b", lowered))
@@ -174,10 +243,14 @@ def parse_salary_text(text: str | None, *, currency: str | None = None, period: 
     if "total compensation" in lowered or "ote" in lowered or "on-target" in lowered:
         notes.append("may_include_variable_pay")
 
-    numbers = [_to_decimal(match.group(0)) for match in re.finditer(_NUMBER, raw)]
-    numbers = [n for n in numbers if n is not None and n > 0]
+    numbers = _salary_numbers(raw, hours_per_week=hours)
     if not numbers:
-        return SalarySnapshot(published=False, raw_text=raw, parse_notes=["no_numeric_salary"])
+        return SalarySnapshot(
+            published=False,
+            raw_text=raw,
+            hours_per_week=hours,
+            parse_notes=["no_numeric_salary"],
+        )
 
     min_amount: Decimal | None
     max_amount: Decimal | None
@@ -190,11 +263,13 @@ def parse_salary_text(text: str | None, *, currency: str | None = None, period: 
         else:
             min_amount = max_amount = numbers[0]
     else:
+        # Prefer the first contiguous pay range; ignore later hours-like leftovers.
         min_amount, max_amount = min(numbers[0], numbers[1]), max(numbers[0], numbers[1])
         if up_to and not re.search(_RANGE_SEP, raw):
             min_amount, max_amount = None, numbers[0]
             notes.append("up_to_has_no_lower_bound")
 
+    basis = employment_basis_for(period_code)
     snapshot = SalarySnapshot(
         published=True,
         raw_text=raw,
@@ -202,12 +277,28 @@ def parse_salary_text(text: str | None, *, currency: str | None = None, period: 
         max_amount=max_amount,
         currency=currency_code,
         period=period_code,
+        hours_per_week=hours,
+        employment_basis=basis,
         parse_notes=notes,
     )
+
+    if period_code == "hourly" and hours is None:
+        notes.append("hourly_without_stated_hours_monthly_not_assumed")
+        snapshot.parse_notes = notes
+        return snapshot
+
     if min_amount is not None:
-        snapshot.min_monthly = to_monthly(min_amount, period_code)
+        monthly = to_monthly(min_amount, period_code, hours_per_week=hours, policy=policy)
+        snapshot.min_monthly = monthly
     if max_amount is not None:
-        snapshot.max_monthly = to_monthly(max_amount, period_code)
+        monthly = to_monthly(max_amount, period_code, hours_per_week=hours, policy=policy)
+        snapshot.max_monthly = monthly
+    if period_code == "hourly" and hours is not None and (
+        snapshot.min_monthly is not None or snapshot.max_monthly is not None
+    ):
+        snapshot.monthly_from_hours = True
+        notes.append(f"monthly_from_stated_hours:{hours}")
+        snapshot.parse_notes = notes
     return snapshot
 
 
@@ -218,9 +309,14 @@ def merge_structured_salary(
     max_amount: Decimal | None,
     currency: str | None,
     period: str | None,
+    context: str | None = None,
+    policy: dict[str, Any] | None = None,
 ) -> SalarySnapshot:
     if min_amount is None and max_amount is None:
-        return parse_salary_text(text, currency=currency, period=period)
+        return parse_salary_text(text, currency=currency, period=period, context=context, policy=policy)
+
+    combined = " ".join(p for p in [text or "", context or ""] if p)
+    hours = extract_hours_per_week(combined)
     period_code = detect_period(text or period or "annual", period)
     currency_code = detect_currency(text or "", currency)
     snapshot = SalarySnapshot(
@@ -230,13 +326,20 @@ def merge_structured_salary(
         max_amount=max_amount,
         currency=currency_code,
         period=period_code,
+        hours_per_week=hours,
+        employment_basis=employment_basis_for(period_code),
     )
+    if period_code == "hourly" and hours is None:
+        snapshot.parse_notes.append("hourly_without_stated_hours_monthly_not_assumed")
+        return snapshot
     if min_amount is not None:
-        snapshot.min_monthly = to_monthly(min_amount, period_code)
+        snapshot.min_monthly = to_monthly(min_amount, period_code, hours_per_week=hours, policy=policy)
     if max_amount is not None:
-        snapshot.max_monthly = to_monthly(max_amount, period_code)
+        snapshot.max_monthly = to_monthly(max_amount, period_code, hours_per_week=hours, policy=policy)
     if min_amount is None and max_amount is not None:
         snapshot.parse_notes.append("up_to_has_no_lower_bound")
+    if period_code == "hourly" and hours is not None:
+        snapshot.monthly_from_hours = True
     return snapshot
 
 
@@ -244,3 +347,59 @@ def lower_bound_monthly(snapshot: SalarySnapshot) -> Decimal | None:
     if snapshot.min_monthly is not None:
         return snapshot.min_monthly
     return None
+
+
+def format_salary_for_display(snapshot: SalarySnapshot) -> str:
+    """Human label for digests — never imply a 40h month from an hourly rate."""
+    if not snapshot.published:
+        return "Salary: Not published"
+    currency = snapshot.currency or ""
+    period = snapshot.period or "unknown"
+
+    def _fmt(value: Decimal | None) -> str:
+        if value is None:
+            return "?"
+        if value == value.to_integral_value():
+            return f"{value.quantize(Decimal('1')):,}"
+        return f"{value.quantize(Decimal('0.01')):,}"
+
+    def _money(value: Decimal | None) -> str:
+        return f"{currency} {_fmt(value)}".strip()
+
+    def _range(lo: Decimal | None, hi: Decimal | None) -> str:
+        if hi is not None and lo is not None and hi != lo:
+            return f"{currency} {_fmt(lo)}–{_fmt(hi)}".strip()
+        return _money(lo if lo is not None else hi)
+
+    if period == "hourly":
+        rate = _range(snapshot.min_amount, snapshot.max_amount)
+        if snapshot.hours_per_week is not None:
+            hours = snapshot.hours_per_week
+            hours_s = str(hours.quantize(Decimal("1")) if hours == hours.to_integral_value() else hours)
+            monthly_bit = ""
+            if snapshot.min_monthly is not None:
+                monthly_bit = (
+                    f" · ≈ {_range(snapshot.min_monthly, snapshot.max_monthly)}/month at stated hours"
+                )
+            return f"Salary: {rate} per hour · {hours_s} hours/week{monthly_bit}"
+        return (
+            f"Salary: {rate} per hour · weekly hours not published — "
+            "monthly equivalent not calculated"
+        )
+
+    if period == "monthly":
+        return f"Salary: {_range(snapshot.min_amount, snapshot.max_amount)} per month (fixed monthly)"
+
+    if period == "annual":
+        amount = _range(snapshot.min_amount, snapshot.max_amount)
+        monthly = ""
+        if snapshot.min_monthly is not None:
+            monthly = f" · ≈ {_range(snapshot.min_monthly, snapshot.max_monthly)}/month"
+        return f"Salary: {amount} per year{monthly}"
+
+    if period == "daily":
+        return f"Salary: {_range(snapshot.min_amount, snapshot.max_amount)} per day"
+
+    if snapshot.raw_text:
+        return f"Salary: {snapshot.raw_text}"
+    return "Salary: Published (see listing)"

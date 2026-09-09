@@ -128,6 +128,58 @@ Preference order used throughout: official public API → official RSS → publi
 - **Enabled:** Yes
 - **Reason:** Public API covering European engineering/ops listings.
 
+### ReliefWeb
+- **URL/domain:** reliefweb.int
+- **Region:** Global (humanitarian / development)
+- **Coverage:** Mostly on-site / hybrid field roles; some remote
+- **Access:** Official jobs RSS `GET https://reliefweb.int/jobs/rss.xml` (REST `/v1/jobs` returned HTTP 410 when checked)
+- **Auth:** No
+- **Free:** Yes
+- **Salary:** Rare
+- **Pagination:** Feed window (~20)
+- **JavaScript:** No
+- **Stability:** High for RSS
+- **Adapter:** `job_scout.adapters.regional.reliefweb.ReliefWebAdapter`
+- **Enabled:** Yes
+- **Reason:** Strong WASH / infrastructure / expat niche analogue to TeachAway-style specialty boards.
+
+### DPSA Public Service Vacancy Circular (ZA)
+- **URL/domain:** dpsa.gov.za/newsroom/psvc
+- **Region:** South Africa (national + provincial administrations)
+- **Coverage:** On-site / hybrid public-service posts (Chief Engineer, Civil/Mechanical, etc.)
+- **Access:** Weekly circular HTML index → section PDFs (e.g. Limpopo `.../2026/32/s.pdf`) parsed with `pypdf`
+- **Auth:** No
+- **Free:** Yes
+- **Salary:** Usually published as **annual ZAR** (OSD grades A–C common)
+- **Pagination:** Latest N circulars (default 2); engineering keyword filter before ingest
+- **JavaScript:** No
+- **Stability:** Medium (PDF layout quirks); URL pattern is stable week-to-week
+- **Adapter:** `job_scout.adapters.regional.dpsa_circular.DpsaCircularAdapter`
+- **Enabled:** Yes
+- **Reason:** This is how SA government Engineering Services / DWS-adjacent posts are advertised. Direct `dws.gov.za` careers HTML and `limpopo.gov.za` are not usable feeds; Government Gazette notices are not treated as the vacancy channel.
+
+### Remote1stJobs
+- **URL/domain:** remote1stjobs.com
+- **Region:** Global / EMEA-leaning remote
+- **Coverage:** Remote
+- **Access:** Public JSON `GET https://www.remote1stjobs.com/jobs.json`
+- **Auth:** No
+- **Free:** Yes
+- **Salary:** Rare in feed
+- **Pagination:** Single dump (capped by `max_jobs_per_source`)
+- **JavaScript:** No
+- **Stability:** Medium
+- **Adapter:** `job_scout.adapters.remote.remote1stjobs.Remote1stJobsAdapter`
+- **Enabled:** Yes
+- **Reason:** Extra remote inventory; family filter keeps mechanical/infra hits.
+
+### Greenhouse / Lever / SmartRecruiters employers (verified water/infra)
+- Greenhouse: `mackaysposito`, `bgeinc`
+- Lever: `woodardcurran`, `stanleygroup`
+- SmartRecruiters: `AECOM2`, `Ingrop`, `Ramboll3`
+- **Enabled:** Yes (page-capped on SmartRecruiters)
+- **Reason:** Live dams / pipelines / water consulting boards confirmed via public ATS JSON. WSP Africa API slug returned empty and was not added. Workday (SMEC) stays excluded.
+
 ## Disabled pending credentials (implemented)
 
 ### USAJOBS
@@ -142,14 +194,20 @@ Preference order used throughout: official public API → official RSS → publi
 | --- | --- |
 | LinkedIn | ToS / anti-bot. Not a dependency. |
 | Indeed | ToS / anti-bot. Not a dependency. |
+| Facebook / Meta jobs | Login / anti-bot; no free personal jobs API. |
+| TeachAway | Teacher niche; no public jobs API/RSS for this profile. |
+| Devex / Rigzone / Careermine | No free public jobs retrieval (or bot-check HTML). |
+| UN Careers “jobfeed” | Returns SPA HTML, not RSS. |
 | PNet / CareerJunction | No official public API; JS-heavy HTML. |
 | SEEK | No official public API; scraping prohibited. |
 | Glassdoor | Anti-bot; salary *estimates* are forbidden as published pay. |
-| DPSA vacancy circular | Weekly PDF, not a job API. |
+| DPSA vacancy circular | **Now enabled** — weekly section PDFs parsed (was previously excluded as “PDF only”). |
+| Government Gazette | Not used as vacancy feed; engineer posts come via DPSA circular. |
+| limpopo.gov / dws.gov careers HTML | Not usable feeds; vacancies route through DPSA. |
 | APS Jobs | Salesforce/JS; would need Playwright. |
 | Workday career sites | Undocumented POST endpoints; not treated as official public APIs. |
 | Paid job APIs / proxies / CAPTCHA solvers | Out of free-tier policy. |
 
 ## South Africa note
 
-There is no high-quality free official JSON/RSS board for private-sector mechanical/infrastructure jobs in South Africa that meets the access rules. Coverage for ZA on-site/hybrid therefore depends on (1) employer ATS boards you add as slugs, and (2) optional Adzuna once a free key exists. This is an honest limitation, not a missing scraper.
+ZA public-service engineering posts (including provincial Engineering Services and posts that appear under Water & Sanitation when advertised) are ingested from **DPSA weekly circular PDFs**. Private-sector ZA coverage still relies mainly on SmartRecruiters boards (AECOM, Ingérop) plus optional Adzuna keys. Direct scraping of `limpopo.gov.za` / broken `dws.gov.za` careers HTML is not used.

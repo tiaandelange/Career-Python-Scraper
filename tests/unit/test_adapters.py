@@ -1,6 +1,8 @@
 from job_scout.adapters.ats.greenhouse import GreenhouseAdapter
 from job_scout.adapters.mocks import MockApiAdapter, MockHtmlAdapter, MockRssAdapter
+from job_scout.adapters.regional.reliefweb import ReliefWebAdapter
 from job_scout.adapters.remote.jobicy import JobicyAdapter
+from job_scout.adapters.remote.remote1stjobs import Remote1stJobsAdapter
 from job_scout.adapters.remote.remoteok import RemoteOKAdapter
 from job_scout.adapters.remote.remotive import RemotiveAdapter
 from job_scout.models.job import RawJobRecord
@@ -136,3 +138,35 @@ def test_greenhouse_parser():
     _assert_raw(job)
     assert job.direct_employer_url
     assert "title" in job.model_dump()
+
+
+def test_reliefweb_parser():
+    job = ReliefWebAdapter().parse_job(
+        {
+            "id": "https://reliefweb.int/job/1",
+            "link": "https://reliefweb.int/job/1",
+            "title": "WASH Engineer",
+            "author": "NGO Example",
+            "summary": "<div>Country: South Africa</div><p>Water infrastructure</p>",
+            "published": "2026-09-01",
+        }
+    )
+    _assert_raw(job)
+    assert job.company == "NGO Example"
+    assert job.location_text == "South Africa"
+
+
+def test_remote1stjobs_parser():
+    job = Remote1stJobsAdapter().parse_job(
+        {
+            "title": "Infrastructure Engineer",
+            "company": "RemoteCo",
+            "location": "Berlin, Remote",
+            "url": "https://www.remote1stjobs.com/jobs/infra-1",
+            "description": "Pipelines and remote ops",
+            "created_at": "2026-09-01T00:00:00+00:00",
+            "category": "Engineering",
+        }
+    )
+    _assert_raw(job)
+    assert job.work_mode_hint == "remote"

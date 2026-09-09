@@ -70,11 +70,14 @@ class SalarySnapshot(BaseModel):
     max_amount: Decimal | None = None
     currency: str | None = None
     period: str | None = None
+    hours_per_week: Decimal | None = None
+    employment_basis: str | None = None  # hourly | monthly_fixed | annual | daily | weekly
     min_monthly: Decimal | None = None
     max_monthly: Decimal | None = None
     usd_monthly: Decimal | None = None
     fx_stale: bool = False
     estimated: bool = False
+    monthly_from_hours: bool = False  # True only when monthly was derived from stated hours
     parse_notes: list[str] = Field(default_factory=list)
 
 
