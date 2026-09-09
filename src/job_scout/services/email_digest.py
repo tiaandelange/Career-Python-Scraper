@@ -101,46 +101,127 @@ def select_digest_jobs(
         "onsite": sum(1 for j in selected if j.work_mode == WorkMode.ONSITE),
         "exceptional": sum(1 for j in selected if j.fit_category == FitCategory.EXCEPTIONAL),
         "strong": sum(1 for j in selected if j.fit_category == FitCategory.STRONG),
+        "good": sum(1 for j in selected if j.fit_category == FitCategory.GOOD),
         "updated": len(updated),
     }
     return DigestSelection(jobs=selected, updated_ids=updated, summary=summary)
 
 
+def job_excerpt(job: CanonicalJobRecord, *, max_chars: int = 220) -> str:
+    """One short plain-text blurb for the email card — enough context, not a full advert."""
+    text = " ".join((job.description or "").split())
+    if not text:
+        return ""
+    if len(text) <= max_chars:
+        return text
+    cut = text[: max_chars + 1]
+    if " " in cut:
+        cut = cut.rsplit(" ", 1)[0]
+    return cut.rstrip(".,;:") + "…"
+
+
 def _card(job: CanonicalJobRecord, updated: bool) -> str:
     apply_url = job.direct_employer_url or job.apply_url or (job.source_urls[0] if job.source_urls else "")
+    safe_url = html.escape(apply_url, quote=True) if apply_url else ""
     secondary = ""
     if job.direct_employer_url and job.apply_url and job.apply_url != job.direct_employer_url:
-        secondary = f'<p style="margin:4px 0 0;font-size:13px">Secondary source: {html.escape(job.apply_url)}</p>'
-    reasons = "".join(f"<li>{html.escape(item)}</li>" for item in job.fit_reasons[:5])
-    concerns = "".join(f"<li>{html.escape(item)}</li>" for item in job.concerns[:5])
+        sec = html.escape(job.apply_url, quote=True)
+        secondary = (
+            f'<p style="margin:8px 0 0;font-size:13px">'
+            f'<a href="{sec}" style="color:#0f6b4c;text-decoration:underline">Secondary source</a></p>'
+        )
+    reasons = "".join(f"<li>{html.escape(item)}</li>" for item in job.fit_reasons[:3])
+    concerns = "".join(f"<li>{html.escape(item)}</li>" for item in job.concerns[:2])
     badge = "UPDATED · " if updated else ""
     remote = ""
     if job.work_mode == WorkMode.REMOTE:
-        remote = f"<p><strong>Remote eligibility:</strong> {html.escape(job.remote_scope.value)}</p>"
+        remote = f"<p style=\"margin:0 0 8px\"><strong>Remote eligibility:</strong> {html.escape(job.remote_scope.value)}</p>"
     visa = "Unknown" if job.mobility.visa_sponsorship is None else ("Yes" if job.mobility.visa_sponsorship else "No")
     reloc = "Unknown" if job.mobility.relocation_assistance is None else ("Yes" if job.mobility.relocation_assistance else "No")
     work_auth = html.escape(job.mobility.work_authorisation_notes or "Unknown — not inferred")
     first_seen = job.first_seen_at.date().isoformat() if job.first_seen_at else "Unknown"
     posted = job.date_posted.date().isoformat() if job.date_posted else "Unknown"
     closing = job.closing_date.isoformat() if job.closing_date else "Unknown"
+    title_html = html.escape(job.title)
+    if safe_url:
+        title_html = (
+            f'<a href="{safe_url}" style="color:#0f6b4c;text-decoration:none">'
+            f"{title_html}</a>"
+        )
+    cta = (
+        f'<a href="{safe_url}" style="display:inline-block;background:#0f6b4c;color:#ffffff;'
+        f"font-family:Arial,sans-serif;font-size:14px;font-weight:bold;text-decoration:none;"
+        f'padding:12px 18px;border-radius:6px">View / apply →</a>'
+        if safe_url
+        else '<span style="color:#888">No application URL available</span>'
+    )
+    excerpt = job_excerpt(job)
+    excerpt_html = (
+        f'<p style="margin:0 0 10px;font-size:14px;line-height:1.45;color:#333">{html.escape(excerpt)}</p>'
+        if excerpt
+        else ""
+    )
     return f"""
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 16px;border:1px solid #d8d8d8;border-radius:8px;background:#ffffff">
       <tr><td style="padding:16px;font-family:Arial,sans-serif;color:#222">
         <p style="margin:0 0 6px;font-size:12px;letter-spacing:.04em;color:#555">{badge}{job.fit_category or ''} · {job.fit_score if job.fit_score is not None else '—'}/100</p>
-        <h3 style="margin:0 0 8px;font-size:18px;line-height:1.3">{html.escape(job.title)}</h3>
+        <h3 style="margin:0 0 8px;font-size:18px;line-height:1.3">{title_html}</h3>
         <p style="margin:0 0 8px"><strong>{html.escape(job.company or 'Unknown company')}</strong><br>
         {html.escape(job.location_text or 'Location unknown')} · {html.escape(job.work_mode.value)}</p>
+        {excerpt_html}
         {remote}
-        <p>{html.escape(salary_label(job))}</p>
-        <p>Posted: {posted} · Closing: {closing} · First seen: {first_seen}</p>
-        <p>Visa sponsorship: {visa} · Relocation: {reloc}<br>Work-authorisation: {work_auth}</p>
-        <p style="margin-bottom:4px"><strong>Why this fits</strong></p>
+        <p style="margin:0 0 8px">{html.escape(salary_label(job))}</p>
+        <p style="margin:0 0 8px">Posted: {posted} · Closing: {closing} · First seen: {first_seen}</p>
+        <p style="margin:0 0 8px">Visa sponsorship: {visa} · Relocation: {reloc}<br>Work-authorisation: {work_auth}</p>
+        <p style="margin:0 0 4px"><strong>Why this fits</strong></p>
         <ul style="margin:0 0 8px;padding-left:18px">{reasons}</ul>
-        <p style="margin-bottom:4px"><strong>Gaps / concerns</strong></p>
-        <ul style="margin:0 0 12px;padding-left:18px">{concerns or '<li>None recorded</li>'}</ul>
-        <p style="margin:0"><a href="{html.escape(apply_url)}" style="color:#0b5fff">Apply / view listing</a></p>
+        <p style="margin:0 0 4px"><strong>Gaps / concerns</strong></p>
+        <ul style="margin:0 0 14px;padding-left:18px">{concerns or '<li>None recorded</li>'}</ul>
+        <p style="margin:0">{cta}</p>
         {secondary}
       </td></tr>
+    </table>
+    """
+
+
+def _stat_cell(label: str, value: object) -> str:
+    return f"""
+    <td width="33.33%" valign="top" style="padding:6px">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #c5ddd2;border-radius:8px;background:#f3faf6">
+        <tr><td style="padding:10px 12px;font-family:Arial,sans-serif">
+          <div style="font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:#0f6b4c;font-weight:bold">{html.escape(label)}</div>
+          <div style="font-size:22px;line-height:1.2;color:#0f6b4c;font-weight:bold;margin-top:4px">{html.escape(str(value))}</div>
+        </td></tr>
+      </table>
+    </td>
+    """
+
+
+def _stats_table(summary: dict[str, int], health: dict[str, Any]) -> str:
+    found = health.get("jobs_found", summary.get("found", 0))
+    discarded = health.get("jobs_discarded", summary.get("discarded", 0))
+    remote = summary.get("remote", 0)
+    hybrid = summary.get("hybrid", 0)
+    onsite = summary.get("onsite", 0)
+    perfect = summary.get("exceptional", 0)
+    row1 = "".join(
+        [
+            _stat_cell("Total found", found),
+            _stat_cell("Discarded", discarded),
+            _stat_cell("Remote", remote),
+        ]
+    )
+    row2 = "".join(
+        [
+            _stat_cell("Hybrid", hybrid),
+            _stat_cell("On-site", onsite),
+            _stat_cell("Perfect match", perfect),
+        ]
+    )
+    return f"""
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 8px">
+      <tr>{row1}</tr>
+      <tr>{row2}</tr>
     </table>
     """
 
@@ -172,10 +253,12 @@ def render_digest_html(
             </table>
             """
         )
-    failed = health.get("failed_sources") or []
-    stale = health.get("stale_sources") or []
+    failed = [str(item) for item in (health.get("failed_sources") or []) if item]
+    stale = [str(item) for item in (health.get("stale_sources") or []) if item]
     last_scrape = health.get("last_successful_scrape") or "unknown"
     summary = selection.summary
+    sources_ok = health.get("sources_ok", 0)
+    sources_failed = health.get("sources_failed", 0)
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -184,10 +267,12 @@ def render_digest_html(
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f3f3">
     <tr><td align="center" style="padding:16px">
       <table role="presentation" width="640" cellpadding="0" cellspacing="0" style="max-width:640px;width:100%">
-        <tr><td style="font-family:Arial,sans-serif;padding:8px 0 16px">
-          <h1 style="margin:0 0 8px;font-size:22px">Daily Job Scout — {digest_date.strftime('%d %b %Y')}</h1>
-          <p style="margin:0;color:#444">New/updated jobs: {summary.get('included', 0)} · Remote {summary.get('remote', 0)} · Hybrid {summary.get('hybrid', 0)} · On-site {summary.get('onsite', 0)} · Exceptional {summary.get('exceptional', 0)} · Strong {summary.get('strong', 0)}</p>
-          <p style="margin:8px 0 0;color:#444">Sources checked: {health.get('sources_ok', 0)} ok · {health.get('sources_failed', 0)} failed · New jobs discovered (pipeline): {health.get('new_jobs', 0)}</p>
+        <tr><td style="font-family:Arial,sans-serif;padding:8px 0 12px">
+          <h1 style="margin:0 0 12px;font-size:22px;color:#1a1a1a">Daily Job Scout — {digest_date.strftime('%d %b %Y')}</h1>
+          {_stats_table(summary, health)}
+          <p style="margin:8px 0 0;font-size:13px;color:#0f6b4c;font-family:Arial,sans-serif">
+            In this email: {summary.get('included', 0)} · Exceptional {summary.get('exceptional', 0)} · Strong {summary.get('strong', 0)} · Good {summary.get('good', 0)} · Sources {sources_ok} ok / {sources_failed} failed
+          </p>
         </td></tr>
         <tr><td>{''.join(sections)}</td></tr>
         <tr><td style="font-family:Arial,sans-serif;font-size:13px;color:#555;padding:12px 0 24px">
@@ -256,7 +341,17 @@ def build_and_maybe_send(
         "stale_sources": [],
         "last_successful_scrape": repo.last_successful_scrape(),
         "new_jobs": selection.summary.get("included", 0),
+        "jobs_found": 0,
+        "jobs_discarded": 0,
     }
+    try:
+        totals = repo.recent_scrape_totals()
+        health["jobs_found"] = totals.get("jobs_found", 0)
+        health["jobs_discarded"] = totals.get("jobs_discarded", 0)
+        if totals.get("jobs_new") is not None:
+            health["pipeline_new"] = totals["jobs_new"]
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Could not load scrape totals for digest header: %s", exc)
     for row in repo.list_source_health():
         if row.get("consecutive_failures", 0) > 0 or row.get("status") == "failure":
             health["sources_failed"] += 1

@@ -29,23 +29,51 @@ def test_html_has_three_sections_in_order():
     remote = canonical_job(work_mode=WorkMode.REMOTE, title="Remote PM", canonical_fingerprint="r")
     remote.fit_score = 88
     remote.fit_category = FitCategory.STRONG
+    remote.apply_url = "https://example.com/remote"
     hybrid = canonical_job(work_mode=WorkMode.HYBRID, title="Hybrid ME", canonical_fingerprint="h")
     hybrid.fit_score = 80
     hybrid.fit_category = FitCategory.STRONG
+    hybrid.apply_url = "https://example.com/hybrid"
     onsite = canonical_job(work_mode=WorkMode.ONSITE, title="Onsite ME", canonical_fingerprint="o")
     onsite.fit_score = 90
     onsite.fit_category = FitCategory.EXCEPTIONAL
+    onsite.apply_url = "https://example.com/onsite"
     selection = select_digest_jobs([remote, hybrid, onsite])
-    html = render_digest_html(selection, health={"sources_ok": 3, "sources_failed": 0, "last_successful_scrape": "now"})
+    html = render_digest_html(
+        selection,
+        health={
+            "sources_ok": 3,
+            "sources_failed": 0,
+            "last_successful_scrape": "now",
+            "jobs_found": 100,
+            "jobs_discarded": 40,
+        },
+    )
     r = html.find("REMOTE")
     h = html.find("HYBRID")
     o = html.find("ON-SITE")
     assert r < h < o
-    assert "88" in html or "90" in html
+    assert "Total found" in html
+    assert "Discarded" in html
+    assert "Perfect match" in html
+    assert 'href="https://example.com/remote"' in html
+    assert "View / apply" in html
     assert "viewport" in html
+    # Short excerpt from the fixture description should appear once truncated/normalised.
+    assert "Mechanical design" in html or "pipelines" in html
 
 
-def test_send_resend_posts_to_api(monkeypatch):
+def test_job_excerpt_is_short():
+    from job_scout.services.email_digest import job_excerpt
+
+    long = canonical_job(
+        description=" ".join(["Mechanical design for dams and pipelines."] * 20),
+    )
+    blurb = job_excerpt(long, max_chars=220)
+    assert blurb.endswith("…")
+    assert len(blurb) <= 230
+    assert "Mechanical design" in blurb
+
     from job_scout.config.settings import Settings
 
     class FakeResponse:

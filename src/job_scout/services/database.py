@@ -42,6 +42,7 @@ class JobRepository(Protocol):
     def last_digest_at(self) -> datetime | None: ...
     def ping(self) -> dict[str, Any]: ...
     def expire_jobs(self, missing_streak: int = 3) -> int: ...
+    def recent_scrape_totals(self) -> dict[str, int]: ...
 
 
 class InMemoryJobRepository:
@@ -148,6 +149,14 @@ class InMemoryJobRepository:
                 job.active = False
                 expired += 1
         return expired
+
+    def recent_scrape_totals(self) -> dict[str, int]:
+        runs = [row for row in self.scrape_runs if row.get("source") == "all"][-9:]
+        return {
+            "jobs_found": sum(int(row.get("jobs_seen") or 0) for row in runs),
+            "jobs_discarded": sum(int(row.get("jobs_rejected") or 0) for row in runs),
+            "jobs_new": sum(int(row.get("jobs_new") or 0) for row in runs),
+        }
 
 
 class SupabaseFxStore:
@@ -352,6 +361,22 @@ class SupabaseJobRepository:
             .execute()
         )
         return len(result.data or [])
+
+    def recent_scrape_totals(self) -> dict[str, int]:
+        result = (
+            self.client.table("scrape_runs")
+            .select("jobs_seen,jobs_rejected,jobs_new,source")
+            .eq("source", "all")
+            .order("ended_at", desc=True)
+            .limit(9)
+            .execute()
+        )
+        rows = result.data or []
+        return {
+            "jobs_found": sum(int(row.get("jobs_seen") or 0) for row in rows),
+            "jobs_discarded": sum(int(row.get("jobs_rejected") or 0) for row in rows),
+            "jobs_new": sum(int(row.get("jobs_new") or 0) for row in rows),
+        }
 
 
 def build_repository(settings: Settings | None = None) -> JobRepository:
