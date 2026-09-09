@@ -40,6 +40,21 @@ def record_failure(repo: JobRepository, source: str, error: str, extra: dict[str
 
 
 def record_parser_anomaly(repo: JobRepository, source: str, missing_fields: list[str]) -> None:
+    """Log parser gaps without flipping the source into consecutive failure."""
     if not missing_fields:
         return
-    record_failure(repo, source, f"parser_missing_critical_fields:{','.join(missing_fields)}")
+    existing = next((row for row in repo.list_source_health() if row.get("source") == source), {})
+    summary = f"parser_missing_critical_fields:{','.join(missing_fields)}"
+    payload = {
+        "source": source,
+        "status": existing.get("status") or "degraded",
+        "consecutive_failures": int(existing.get("consecutive_failures") or 0),
+        "error_summary": summary[:2000],
+        "jobs_seen": existing.get("jobs_seen"),
+        "last_success": existing.get("last_success"),
+        "updated_at": utcnow(),
+    }
+    if existing.get("status") == "success":
+        payload["status"] = "degraded"
+    logger.warning("Source %s parser anomaly: %s", source, summary)
+    repo.record_source_health(payload)

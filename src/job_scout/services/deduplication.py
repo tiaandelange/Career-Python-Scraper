@@ -74,6 +74,11 @@ class DuplicateIndex:
             return job
         existing = self.jobs[match_id]
         merged = merge_jobs(existing, job, self.sources[match_id], ref)
+        # Always persist under the surviving index key — merge_jobs may return
+        # `incoming` with a different fingerprint when an employer source outranks an aggregator.
+        merged.canonical_fingerprint = match_id
+        if existing.id:
+            merged.id = existing.id
         self.jobs[match_id] = merged
         self.sources[match_id].append(ref)
         self._index(merged, ref, match_id)

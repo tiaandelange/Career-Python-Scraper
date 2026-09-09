@@ -17,7 +17,17 @@ EXPECTED_TABLES = ("jobs", "job_sources", "scrape_runs", "source_health", "diges
 
 def run_health(memory: bool = False) -> dict:
     settings = get_settings()
-    if memory or not settings.has_supabase():
+    if memory:
+        repo = InMemoryJobRepository()
+        ping = repo.ping()
+        logger.info("Health (memory): %s", ping)
+        return ping
+    if settings.job_scout_env == "github" and not settings.has_supabase():
+        raise RuntimeError(
+            "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required in GitHub mode "
+            "(refusing silent in-memory fallback)."
+        )
+    if not settings.has_supabase():
         repo = InMemoryJobRepository()
         ping = repo.ping()
         logger.info("Health (memory): %s", ping)
@@ -27,6 +37,15 @@ def run_health(memory: bool = False) -> dict:
     logger.info("Health (supabase): %s", ping)
     if not ping.get("ok"):
         raise RuntimeError("Supabase health check failed")
+    missing = ping.get("missing_jobs_columns") or []
+    if missing:
+        msg = (
+            f"jobs table missing columns {missing}. "
+            "Apply supabase/migrations/APPLY_PENDING_JOBS_COLUMNS.sql in the Supabase SQL editor."
+        )
+        if settings.job_scout_env == "github":
+            raise RuntimeError(msg)
+        logger.warning(msg)
     return ping
 
 

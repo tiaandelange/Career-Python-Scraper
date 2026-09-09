@@ -27,7 +27,10 @@ class UsaJobsAdapter(SourceAdapter):
             "User-Agent": settings.usajobs_user_agent or settings.job_scout_user_agent,
             "Authorization-Key": settings.usajobs_api_key,
         }
-        client = HttpClient()
+        client = HttpClient(
+            allowed_hosts={"data.usajobs.gov"},
+            follow_redirects=False,
+        )
         try:
             for keyword in ("Mechanical Engineer", "Project Manager", "Pipeline"):
                 payload = client.get_json(

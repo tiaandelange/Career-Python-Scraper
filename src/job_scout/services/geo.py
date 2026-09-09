@@ -152,15 +152,67 @@ US_STATES = {
     "alabama": "AL",
     "alaska": "AK",
     "arizona": "AZ",
+    "arkansas": "AR",
     "california": "CA",
     "colorado": "CO",
+    "connecticut": "CT",
+    "delaware": "DE",
     "florida": "FL",
     "georgia": "GA",
+    "hawaii": "HI",
+    "idaho": "ID",
     "illinois": "IL",
+    "indiana": "IN",
+    "iowa": "IA",
+    "kansas": "KS",
+    "kentucky": "KY",
+    "louisiana": "LA",
+    "maine": "ME",
+    "maryland": "MD",
     "massachusetts": "MA",
+    "michigan": "MI",
+    "minnesota": "MN",
+    "mississippi": "MS",
+    "missouri": "MO",
+    "montana": "MT",
+    "nebraska": "NE",
+    "nevada": "NV",
+    "new hampshire": "NH",
+    "new jersey": "NJ",
+    "new mexico": "NM",
     "new york": "NY",
+    "north carolina": "NC",
+    "north dakota": "ND",
+    "ohio": "OH",
+    "oklahoma": "OK",
+    "oregon": "OR",
+    "pennsylvania": "PA",
+    "rhode island": "RI",
+    "south carolina": "SC",
+    "south dakota": "SD",
+    "tennessee": "TN",
     "texas": "TX",
+    "utah": "UT",
+    "vermont": "VT",
+    "virginia": "VA",
     "washington": "WA",
+    "west virginia": "WV",
+    "wisconsin": "WI",
+    "wyoming": "WY",
+    "district of columbia": "DC",
+}
+US_STATE_ABBRS = {abbr.lower() for abbr in US_STATES.values()}
+
+AU_STATE_ABBRS = {"nsw", "vic", "qld", "wa", "sa", "tas", "act", "nt"}
+AU_STATES = {
+    "new south wales",
+    "victoria",
+    "queensland",
+    "western australia",
+    "south australia",
+    "tasmania",
+    "australian capital territory",
+    "northern territory",
 }
 
 
@@ -171,12 +223,23 @@ def country_from_text(text: str | None) -> str | None:
     for alias, code in sorted(COUNTRY_ALIASES.items(), key=lambda item: -len(item[0])):
         if re.search(rf"\b{re.escape(alias)}\b", key):
             return code
+    # "Atlanta, GA" / "Denver, CO" / "Sydney, NSW" — punctuation is stripped by normalise_key.
+    tokens = key.split()
+    if tokens:
+        last = tokens[-1]
+        if last in US_STATE_ABBRS:
+            return "US"
+        if last in AU_STATE_ABBRS:
+            return "AU"
+    if any(name in key for name in US_STATES):
+        return "US"
+    if any(name in key for name in AU_STATES):
+        return "AU"
     if any(city in key for city in SA_CITIES):
         return "ZA"
     if any(province in key for province in SA_PROVINCES):
         return "ZA"
-    if any(centre in key for centre in SA_GENERIC_CENTRES):
-        return "ZA"
+    # SA_GENERIC_CENTRES ("Head Office", "National") are DPSA-scoped — see geo_from_raw.
     return None
 
 
@@ -298,10 +361,12 @@ def _mentions_worldwide(blob: str) -> bool:
 def _us_only(blob: str, countries: list[str]) -> bool:
     if countries and set(countries) <= {"US"}:
         return True
+    # Do not treat EEO / "eligible to work in the US" boilerplate as a hard geo lock.
     return bool(
         re.search(
             r"(us(?:a)? residents only|must be (?:located|based) in the (?:us|united states)|"
-            r"remote[^\n.]{0,40}(us only|united states only)|eligible to work in the (?:us|united states))",
+            r"(?:remote|role|position)[^\n.]{0,40}(?:us only|united states only)|"
+            r"only (?:open|available) to (?:us|usa|united states) (?:residents|citizens|candidates))",
             blob,
         )
     )

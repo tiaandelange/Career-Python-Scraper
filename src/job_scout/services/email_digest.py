@@ -53,6 +53,8 @@ def job_changed_materially(previous: CanonicalJobRecord | None, current: Canonic
         return True
     if (previous.direct_employer_url or "") != (current.direct_employer_url or "") and current.direct_employer_url:
         return True
+    if (previous.apply_url or "") != (current.apply_url or "") and current.apply_url:
+        return True
     if previous.fit_score is not None and current.fit_score is not None:
         if current.fit_score - previous.fit_score >= MATERIAL_SCORE_DELTA:
             return True
@@ -124,9 +126,24 @@ def select_digest_jobs(
 
 def resolve_apply_url(job: CanonicalJobRecord) -> str:
     for candidate in (job.direct_employer_url, job.apply_url, *(job.source_urls or ())):
-        if candidate and str(candidate).strip().startswith(("http://", "https://")):
+        if candidate and str(candidate).strip().startswith("https://"):
+            return str(candidate).strip()
+        if candidate and str(candidate).strip().startswith("http://"):
             return str(candidate).strip()
     return ""
+
+
+def apply_url_host(url: str) -> str:
+    from urllib.parse import urlparse
+
+    try:
+        host = urlparse(url).hostname or ""
+    except Exception:  # noqa: BLE001
+        return ""
+    parts = host.lower().split(".")
+    if len(parts) >= 2:
+        return ".".join(parts[-2:])
+    return host
 
 
 def job_excerpt(job: CanonicalJobRecord, *, max_chars: int = 220) -> str:
@@ -173,12 +190,14 @@ def _card(job: CanonicalJobRecord, status: CardStatus) -> str:
         job.direct_employer_url
         and job.apply_url
         and job.apply_url != job.direct_employer_url
-        and job.apply_url.startswith("http")
+        and job.apply_url.startswith("https://")
     ):
         sec = html.escape(job.apply_url, quote=True)
+        sec_host = html.escape(apply_url_host(job.apply_url) or "external")
         secondary = (
             f'<p style="margin:8px 0 0;font-size:13px">'
-            f'<a href="{sec}" style="color:#0f6b4c;text-decoration:underline">Secondary source</a></p>'
+            f'<a href="{sec}" style="color:#0f6b4c;text-decoration:underline">'
+            f"Secondary source ({sec_host})</a></p>"
         )
     reasons = "".join(f"<li>{html.escape(item)}</li>" for item in job.fit_reasons[:3])
     concerns = "".join(f"<li>{html.escape(item)}</li>" for item in job.concerns[:2])
@@ -203,10 +222,12 @@ def _card(job: CanonicalJobRecord, status: CardStatus) -> str:
         title_html = (
             f'<a href="{safe_url}" style="color:#0f6b4c;text-decoration:none">{title_html}</a>'
         )
+    host_label = html.escape(apply_url_host(apply_url) or "external link")
     cta = (
         f'<a href="{safe_url}" style="display:inline-block;background:#0f6b4c;color:#ffffff;'
         f"font-family:Arial,sans-serif;font-size:14px;font-weight:bold;text-decoration:none;"
         f'padding:12px 18px;border-radius:6px">View / apply →</a>'
+        f'<div style="margin-top:6px;font-size:12px;color:#666">{host_label} — verify before applying</div>'
         if safe_url
         else '<span style="color:#888">No application URL available</span>'
     )

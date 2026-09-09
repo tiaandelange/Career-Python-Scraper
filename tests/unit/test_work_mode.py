@@ -32,3 +32,13 @@ def test_us_residents_only_still_remote_workmode():
         source_hint="remote",
     )
     assert mode == WorkMode.REMOTE
+
+
+def test_city_country_without_onsite_keyword_is_onsite():
+    mode = classify_work_mode(
+        title="Mechanical Engineer",
+        description="Design piping systems for water treatment.",
+        location="Denver, CO",
+        source_hint=None,
+    )
+    assert mode == WorkMode.ONSITE

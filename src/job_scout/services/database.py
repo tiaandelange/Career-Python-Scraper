@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Protocol
 from uuid import uuid4
@@ -14,6 +14,18 @@ from job_scout.models.job import CanonicalJobRecord, JobSourceRef, MobilityFlags
 from job_scout.utils.dates import utcnow
 
 logger = logging.getLogger(__name__)
+
+# Columns added after 0001_init.sql. Live projects may lag migrations; upserts must not send them
+# until PostgREST schema cache includes them (PGRST204 otherwise).
+JOBS_OPTIONAL_COLUMNS = frozenset(
+    {
+        "apply_url",
+        "direct_employer_url",
+        "digest_pending_update",
+        "rejected",
+        "rejection_reasons",
+    }
+)
 
 
 def _jsonable(value: Any) -> Any:
@@ -195,6 +207,32 @@ class SupabaseJobRepository:
         from supabase import create_client
 
         self.client = create_client(self.settings.supabase_url, self.settings.supabase_service_role_key)
+        self._jobs_columns: frozenset[str] | None = None
+        self._warned_missing_columns = False
+
+    def jobs_columns(self) -> frozenset[str]:
+        if self._jobs_columns is None:
+            discovered = discover_table_columns(
+                self.settings.supabase_url,
+                self.settings.supabase_service_role_key,
+                "jobs",
+            )
+            # Never cache an empty discovery — a transient OpenAPI blip would
+            # strip apply_url / rejected for the entire process lifetime.
+            if not discovered:
+                logger.warning("jobs OpenAPI schema empty; will retry on next write")
+                return frozenset()
+            self._jobs_columns = discovered
+            missing = sorted(JOBS_OPTIONAL_COLUMNS - self._jobs_columns)
+            if missing and not self._warned_missing_columns:
+                self._warned_missing_columns = True
+                logger.warning(
+                    "jobs table missing columns %s — apply supabase/migrations/0002_job_apply_urls.sql "
+                    "and 0003_job_rejection.sql in the Supabase SQL editor. "
+                    "Writes will omit those fields until the schema is updated.",
+                    missing,
+                )
+        return self._jobs_columns
 
     def upsert_job(self, job: CanonicalJobRecord, source: JobSourceRef) -> CanonicalJobRecord:
         now = utcnow()
@@ -203,12 +241,39 @@ class SupabaseJobRepository:
             job.apply_url = job.apply_url or existing.apply_url
             job.direct_employer_url = job.direct_employer_url or existing.direct_employer_url
             job.source_urls = list(dict.fromkeys([*existing.source_urls, *job.source_urls]))
+            # Never wipe prior scores when a reject/partial record re-upserts.
+            if job.fit_score is None and existing.fit_score is not None:
+                job.fit_score = existing.fit_score
+                job.fit_category = existing.fit_category or job.fit_category
+                job.score_breakdown = existing.score_breakdown or job.score_breakdown
+                job.fit_reasons = job.fit_reasons or existing.fit_reasons
+                job.concerns = job.concerns or existing.concerns
+            if job.rejected and not existing.rejected and existing.fit_score is not None:
+                # Prefer keeping the accepted row; caller should usually skip, but belt-and-braces.
+                job.rejected = False
+                job.rejection_reasons = []
+                job.active = existing.active
         job.apply_url = job.apply_url or source.source_url or source.direct_employer_url
         job.direct_employer_url = job.direct_employer_url or source.direct_employer_url or source.source_url
         if source.source_url:
             job.source_urls = list(dict.fromkeys([*job.source_urls, source.source_url]))
-        payload = _job_row(job, existing, now)
-        self.client.table("jobs").upsert(payload, on_conflict="canonical_fingerprint").execute()
+        columns = self.jobs_columns()
+        payload = _job_row(job, existing, now, columns=columns)
+        # Without a rejected column, keep salary/geo rejects out of digests via active=false.
+        if job.rejected and "rejected" not in columns:
+            payload["active"] = False
+        try:
+            self.client.table("jobs").upsert(payload, on_conflict="canonical_fingerprint").execute()
+        except Exception as exc:  # noqa: BLE001
+            missing_col = _pgrst204_column(exc)
+            if missing_col and missing_col in payload:
+                logger.warning("Dropping unknown jobs column %s after PGRST204 and retrying", missing_col)
+                payload.pop(missing_col, None)
+                if self._jobs_columns is not None:
+                    self._jobs_columns = frozenset(c for c in self._jobs_columns if c != missing_col)
+                self.client.table("jobs").upsert(payload, on_conflict="canonical_fingerprint").execute()
+            else:
+                raise
         stored = self.get_by_fingerprint(job.canonical_fingerprint)
         if stored and stored.id:
             self.client.table("job_sources").upsert(
@@ -240,11 +305,14 @@ class SupabaseJobRepository:
             self.client.table("jobs")
             .select("*")
             .eq("active", True)
-            .eq("rejected", False)
             .gte("fit_score", min_score)
         )
+        if "rejected" in self.jobs_columns():
+            query = query.eq("rejected", False)
         result = query.execute()
         jobs = [_row_to_job(row) for row in (result.data or [])]
+        if "rejected" not in self.jobs_columns():
+            jobs = [job for job in jobs if not job.rejected]
         return self._hydrate_apply_urls(jobs)
 
     def _hydrate_apply_urls(self, jobs: list[CanonicalJobRecord]) -> list[CanonicalJobRecord]:
@@ -290,9 +358,10 @@ class SupabaseJobRepository:
     def mark_notified(self, fingerprints: list[str], when: datetime) -> None:
         if not fingerprints:
             return
-        self.client.table("jobs").update(
-            {"last_notified_at": when.isoformat(), "digest_pending_update": False}
-        ).in_("canonical_fingerprint", fingerprints).execute()
+        payload: dict[str, Any] = {"last_notified_at": when.isoformat()}
+        if "digest_pending_update" in self.jobs_columns():
+            payload["digest_pending_update"] = False
+        self.client.table("jobs").update(payload).in_("canonical_fingerprint", fingerprints).execute()
 
     def record_scrape_run(self, payload: dict[str, Any]) -> None:
         allowed = {
@@ -411,12 +480,16 @@ class SupabaseJobRepository:
     def ping(self) -> dict[str, Any]:
         jobs = self.client.table("jobs").select("id", count="exact").limit(1).execute()
         health = self.client.table("source_health").select("source").limit(1).execute()
+        columns = self.jobs_columns()
+        missing = sorted(JOBS_OPTIONAL_COLUMNS - columns)
         return {
             "ok": True,
             "backend": "supabase",
             "schema_jobs": True,
             "schema_source_health": health is not None,
             "count": getattr(jobs, "count", None),
+            "jobs_columns": sorted(columns),
+            "missing_jobs_columns": missing,
         }
 
     def expire_jobs(self, missing_streak: int = 3) -> int:
@@ -476,12 +549,83 @@ def _material_digest_change(existing: CanonicalJobRecord, incoming: CanonicalJob
     return False
 
 
-def _job_row(job: CanonicalJobRecord, existing: CanonicalJobRecord | None, now: datetime) -> dict[str, Any]:
+def discover_table_columns(supabase_url: str, service_role_key: str, table: str) -> frozenset[str]:
+    """Read PostgREST OpenAPI schema so upserts omit columns not yet migrated."""
+    import httpx
+
+    url = f"{supabase_url.rstrip('/')}/rest/v1/"
+    headers = {
+        "apikey": service_role_key,
+        "Authorization": f"Bearer {service_role_key}",
+        "Accept": "application/openapi+json",
+    }
+    try:
+        response = httpx.get(url, headers=headers, timeout=30.0)
+        response.raise_for_status()
+        spec = response.json()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Could not load PostgREST OpenAPI for %s: %s", table, exc)
+        return frozenset()
+
+    schemas = (spec.get("components") or {}).get("schemas") or {}
+    definitions = spec.get("definitions") or {}
+    table_schema = schemas.get(table) or definitions.get(table) or {}
+    properties = table_schema.get("properties") or {}
+    if properties:
+        return frozenset(properties)
+    # Fallback: some gateways nest under paths → get → responses
+    logger.warning("OpenAPI response had no properties for table %s", table)
+    return frozenset()
+
+
+def filter_job_payload(payload: dict[str, Any], columns: frozenset[str] | None) -> dict[str, Any]:
+    """Drop columns absent from the live schema (or omit optional cols when unknown)."""
+    if not columns:
+        # Unknown schema: omit optional migration columns to avoid PGRST204.
+        return {key: value for key, value in payload.items() if key not in JOBS_OPTIONAL_COLUMNS}
+    # When discovery succeeded, only send columns PostgREST actually knows.
+    return {key: value for key, value in payload.items() if key in columns}
+
+
+def _pgrst204_column(exc: Exception) -> str | None:
+    message = str(exc)
+    if "PGRST204" not in message and "schema cache" not in message.lower():
+        # supabase-py raises APIError with dict message
+        detail = getattr(exc, "message", None) or getattr(exc, "args", [None])[0]
+        if isinstance(detail, dict):
+            message = str(detail.get("message") or detail)
+        else:
+            message = str(detail or exc)
+    if "schema cache" not in message.lower() and "PGRST204" not in str(exc):
+        return None
+    import re
+
+    match = re.search(r"Could not find the '([^']+)' column", message)
+    return match.group(1) if match else None
+
+
+def _job_row(
+    job: CanonicalJobRecord,
+    existing: CanonicalJobRecord | None,
+    now: datetime,
+    columns: frozenset[str] | None = None,
+) -> dict[str, Any]:
     first_seen = (existing.first_seen_at if existing else now)
     pending = bool(job.digest_pending_update)
     if existing and existing.last_notified_at and _material_digest_change(existing, job):
         pending = True
-    return {
+    fit_score = job.fit_score
+    fit_category = job.fit_category
+    score_breakdown = job.score_breakdown
+    fit_reasons = job.fit_reasons
+    concerns = job.concerns
+    if existing and fit_score is None and existing.fit_score is not None:
+        fit_score = existing.fit_score
+        fit_category = fit_category or existing.fit_category
+        score_breakdown = score_breakdown or existing.score_breakdown
+        fit_reasons = fit_reasons or existing.fit_reasons
+        concerns = concerns or existing.concerns
+    payload = {
         "id": str(existing.id if existing and existing.id else job.id or uuid4()),
         "canonical_fingerprint": job.canonical_fingerprint,
         "title": job.title,
@@ -510,11 +654,11 @@ def _job_row(job: CanonicalJobRecord, existing: CanonicalJobRecord | None, now: 
         "active": job.active,
         "rejected": job.rejected,
         "rejection_reasons": job.rejection_reasons or [],
-        "fit_score": job.fit_score,
-        "fit_category": job.fit_category.value if job.fit_category else None,
-        "score_breakdown": job.score_breakdown.model_dump() if job.score_breakdown else {},
-        "fit_reasons": job.fit_reasons,
-        "concerns": job.concerns,
+        "fit_score": fit_score,
+        "fit_category": fit_category.value if fit_category else None,
+        "score_breakdown": score_breakdown.model_dump() if score_breakdown else {},
+        "fit_reasons": fit_reasons,
+        "concerns": concerns,
         "visa_sponsorship": job.mobility.visa_sponsorship,
         "relocation_assistance": job.mobility.relocation_assistance,
         "work_authorisation_notes": job.mobility.work_authorisation_notes,
@@ -528,6 +672,7 @@ def _job_row(job: CanonicalJobRecord, existing: CanonicalJobRecord | None, now: 
         ),
         "updated_at": now.isoformat(),
     }
+    return filter_job_payload(payload, columns)
 
 
 def _json_row(payload: dict[str, Any]) -> dict[str, Any]:
@@ -553,7 +698,15 @@ def _row_to_job(row: dict[str, Any]) -> CanonicalJobRecord:
     )
     breakdown = None
     if row.get("score_breakdown"):
-        breakdown = ScoreBreakdown(**row["score_breakdown"])
+        try:
+            breakdown = ScoreBreakdown.model_validate(row["score_breakdown"])
+        except Exception:  # noqa: BLE001
+            try:
+                raw = dict(row["score_breakdown"])
+                allowed = set(ScoreBreakdown.model_fields)
+                breakdown = ScoreBreakdown(**{k: v for k, v in raw.items() if k in allowed})
+            except Exception:  # noqa: BLE001
+                breakdown = None
     return CanonicalJobRecord(
         id=UUID(row["id"]) if row.get("id") else None,
         canonical_fingerprint=row["canonical_fingerprint"],

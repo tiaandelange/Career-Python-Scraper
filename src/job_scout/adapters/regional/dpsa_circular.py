@@ -32,7 +32,10 @@ class DpsaCircularAdapter(SourceAdapter):
     supported_regions = ("ZA",)
 
     def fetch_jobs(self) -> Iterable[RawJobRecord]:
-        client = HttpClient()
+        client = HttpClient(
+            allowed_hosts={"www.dpsa.gov.za", "dpsa.gov.za"},
+            max_bytes=20 * 1024 * 1024,
+        )
         max_circulars = int(self.config.get("max_circulars", 2))
         max_jobs = int(self.config.get("max_jobs_per_source", 250))
         yielded = 0

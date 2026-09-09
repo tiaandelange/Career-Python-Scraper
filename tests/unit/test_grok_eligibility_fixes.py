@@ -36,10 +36,22 @@ def test_remote_hint_still_works_when_location_says_remote():
 
 
 def test_sa_generic_centres_resolve_to_za():
-    assert country_from_text("Head Office") == "ZA"
+    assert country_from_text("Head Office") is None  # not global ZA — DPSA-scoped via geo_from_raw
     assert country_from_text("Gauteng") == "ZA"
     assert country_from_text("Polokwane") == "ZA"
+    from job_scout.services.geo import geo_from_raw
 
+    raw = RawJobRecord(
+        source_name="dpsa_circular",
+        source_type=SourceType.HTML,
+        source_job_id="1",
+        source_url="https://www.dpsa.gov.za/x.pdf#post-1",
+        title="Engineer",
+        company="Department of Water and Sanitation",
+        location_text="Head Office",
+        source_preference=SourcePreference.GOVERNMENT,
+    )
+    assert geo_from_raw(raw, "").country_code == "ZA"
 
 def test_dpsa_annual_uses_public_service_floor():
     policy = load_salary_policy()

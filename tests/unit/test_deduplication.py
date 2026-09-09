@@ -84,6 +84,31 @@ def test_employer_preferred_over_aggregator():
     assert merged.direct_employer_url == "https://careers.jacobs.com/job/1"
 
 
+def test_employer_outrank_keeps_index_fingerprint():
+    """Regression: merge must not upsert a second jobs row under the incoming fingerprint."""
+    idx = DuplicateIndex()
+    agg = canonical_job(canonical_fingerprint="fp-agg", apply_url="https://board.example/same")
+    emp = canonical_job(
+        canonical_fingerprint="fp-emp",
+        apply_url="https://board.example/same",
+        direct_employer_url="https://careers.example/job/1",
+    )
+    idx.add(agg, _ref("https://board.example/same", pref=SourcePreference.AGGREGATOR))
+    merged = idx.add(
+        emp,
+        _ref(
+            "https://board.example/same",
+            source="greenhouse",
+            pref=SourcePreference.EMPLOYER_ATS,
+            job_id="gh-1",
+        ),
+    )
+    assert len(idx.jobs) == 1
+    assert merged.canonical_fingerprint == "fp-agg"
+    assert "fp-emp" not in idx.jobs
+    assert merged.direct_employer_url == "https://careers.example/job/1"
+
+
 def test_changed_salary_merges_published_value():
     from decimal import Decimal
 

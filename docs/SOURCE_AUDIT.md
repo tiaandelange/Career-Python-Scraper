@@ -176,7 +176,7 @@ Preference order used throughout: official public API → official RSS → publi
 ### Greenhouse / Lever / SmartRecruiters employers (verified water/infra)
 - Greenhouse: `mackaysposito`, `bgeinc`
 - Lever: `woodardcurran`, `stanleygroup`
-- SmartRecruiters: `AECOM2`, `Ingrop`, `Ramboll3`
+- SmartRecruiters: `AECOM2`, `Ingerop`, `Ramboll3`
 - **Enabled:** Yes (page-capped on SmartRecruiters)
 - **Reason:** Live dams / pipelines / water consulting boards confirmed via public ATS JSON. WSP Africa API slug returned empty and was not added. Workday (SMEC) stays excluded.
 

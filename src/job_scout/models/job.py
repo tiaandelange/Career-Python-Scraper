@@ -206,6 +206,7 @@ class PipelineStats(BaseModel):
     rejected_geo: int = 0
     duplicates_merged: int = 0
     parse_errors: int = 0
+    dropped_work_mode: int = 0
     failures: list[str] = Field(default_factory=list)
 
 

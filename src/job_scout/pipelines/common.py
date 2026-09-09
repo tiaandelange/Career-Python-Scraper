@@ -27,7 +27,11 @@ logger = logging.getLogger(__name__)
 
 
 def is_family_relevant(title: str, description: str, profile: dict[str, Any]) -> bool:
-    """Match family titles/keywords with token-set tolerance for inverted DPSA titles."""
+    """Match family titles/keywords with token-set tolerance for inverted DPSA titles.
+
+    Single-token keywords (water, plant, civil) must hit the title, or the body must
+    contain at least two distinct family keywords, to avoid digest junk.
+    """
     title_key = normalise_key(title)
     title_tokens = set(title_key.split())
     blob = normalise_key(f"{title} {description or ''}")
@@ -42,17 +46,37 @@ def is_family_relevant(title: str, description: str, profile: dict[str, Any]) ->
             # "Engineer (Mechanical)" ↔ "Mechanical Engineer"
             if opt_tokens and opt_tokens <= title_tokens:
                 return True
-            if len(opt_tokens) >= 2 and title_tokens and title_tokens <= opt_tokens:
+            # Require substantial overlap — bare "Engineer" must not match "Chief Engineer".
+            if len(opt_tokens) >= 2 and title_tokens and title_tokens <= opt_tokens and len(title_tokens) >= 2:
                 return True
+        keyword_hits = 0
+        title_keyword_hit = False
         for keyword in family.get("keywords") or []:
             key = normalise_key(keyword)
             if not key:
                 continue
+            in_title = False
+            in_blob = False
             if len(key) <= 3:
-                if re.search(rf"\b{re.escape(key)}\b", blob):
-                    return True
-            elif key in blob:
+                in_title = bool(re.search(rf"\b{re.escape(key)}\b", title_key))
+                in_blob = bool(re.search(rf"\b{re.escape(key)}\b", blob))
+            else:
+                in_title = key in title_key
+                in_blob = key in blob
+            if not in_blob and not in_title:
+                continue
+            # Multi-word keywords are strong enough alone.
+            if " " in key and (in_title or in_blob):
                 return True
+            if in_title:
+                title_keyword_hit = True
+                keyword_hits += 1
+            elif in_blob:
+                keyword_hits += 1
+        if title_keyword_hit:
+            return True
+        if keyword_hits >= 2:
+            return True
     return False
 
 
@@ -129,8 +153,11 @@ def run_pipeline(
                     continue
                 if expected_work_mode != WorkMode.REMOTE and normalised.work_mode != expected_work_mode:
                     continue
-            # Do not coerce UNKNOWN → REMOTE: that skips salary/geo gates for office ATS roles.
+            # Remote pipeline: never coerce UNKNOWN → REMOTE (skips salary/geo gates).
+            # Onsite/hybrid: location-driven classification should already resolve office roles;
+            # still drop residual UNKNOWN so we don't invent a mode.
             if expected_work_mode and normalised.work_mode == WorkMode.UNKNOWN:
+                stats.dropped_work_mode += 1
                 continue
             if not is_family_relevant(normalised.title, normalised.description, profile):
                 stats.rejected += 1
@@ -148,14 +175,22 @@ def run_pipeline(
                     stats.rejected_salary += 1
                 if any("remote_restricted" in reason or "country_not_in_target" in reason for reason in decision.reasons):
                     stats.rejected_geo += 1
-                # Persist rejects so digests and audits can see salary/geo drops.
+                existing = repo.get_by_fingerprint(canonical.canonical_fingerprint)
+                # Never let a reject overwrite an accepted, scored row.
+                if existing and not existing.rejected and existing.fit_score is not None:
+                    continue
                 repo.upsert_job(canonical, source_ref_from(normalised))
                 continue
-            canonical = score_job(canonical, profile=profile, scoring=scoring)
             before = repo.get_by_fingerprint(canonical.canonical_fingerprint)
+            prior_flags = set(canonical.flags)
             merged = index.add(canonical, source_ref_from(normalised))
-            if merged is not canonical and merged.canonical_fingerprint != canonical.canonical_fingerprint:
+            if "duplicate_merged" in merged.flags and "duplicate_merged" not in prior_flags:
                 stats.duplicates_merged += 1
+            # Score after merge so employer-ATS salary/description upgrades count.
+            merged = score_job(merged, profile=profile, scoring=scoring)
+            if before and not before.rejected and before.fit_score is not None and merged.rejected:
+                merged.rejected = False
+                merged.rejection_reasons = []
             stored = repo.upsert_job(merged, source_ref_from(normalised))
             if before is None:
                 stats.new += 1

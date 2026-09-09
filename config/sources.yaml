@@ -147,7 +147,7 @@ sources:
     max_pages: 2
     employers:
       - {name: AECOM, slug: AECOM2}
-      - {name: Ingerop, slug: Ingrop}
+      - {name: Ingerop, slug: Ingerop}
       - {name: Ramboll, slug: Ramboll3}
     notes: Verified water/dams consulting boards. Caps pages to limit Actions minutes (AECOM is large).
 

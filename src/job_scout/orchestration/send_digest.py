@@ -21,6 +21,12 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     settings = get_settings()
     configure_logging(settings.job_scout_log_level)
+    if not args.memory and settings.job_scout_env == "github" and not settings.has_supabase():
+        logger.error(
+            "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required in GitHub mode "
+            "(refusing silent in-memory fallback)."
+        )
+        return 1
     repo = InMemoryJobRepository() if args.memory else build_repository(settings)
     send = bool(args.send or settings.job_scout_send_email)
     if send and not settings.has_resend():

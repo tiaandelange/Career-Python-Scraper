@@ -32,6 +32,8 @@ create table if not exists public.jobs (
     first_seen_at timestamptz not null default now(),
     last_seen_at timestamptz not null default now(),
     active boolean not null default true,
+    rejected boolean not null default false,
+    rejection_reasons jsonb not null default '[]'::jsonb,
     fit_score integer,
     fit_category text,
     score_breakdown jsonb not null default '{}'::jsonb,
@@ -40,6 +42,9 @@ create table if not exists public.jobs (
     visa_sponsorship boolean,
     relocation_assistance boolean,
     work_authorisation_notes text,
+    apply_url text,
+    direct_employer_url text,
+    digest_pending_update boolean not null default false,
     last_notified_at timestamptz,
     created_at timestamptz not null default now(),
     updated_at timestamptz not null default now()
@@ -47,6 +52,7 @@ create table if not exists public.jobs (
 
 create index if not exists jobs_work_mode_score_idx on public.jobs (work_mode, fit_score desc);
 create index if not exists jobs_active_idx on public.jobs (active) where active;
+create index if not exists jobs_rejected_idx on public.jobs (rejected) where rejected = false;
 
 create table if not exists public.job_sources (
     id uuid primary key default gen_random_uuid(),

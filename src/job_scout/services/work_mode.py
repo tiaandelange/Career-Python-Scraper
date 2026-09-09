@@ -98,7 +98,21 @@ def classify_work_mode(
         if re.search(r"(this role is remote|position is remote|remote position)", blob):
             return WorkMode.REMOTE
         return WorkMode.UNKNOWN
+    # Office ATS posts often omit "on-site" wording but list a real city/country.
+    if _location_implies_onsite(location):
+        return WorkMode.ONSITE
     return WorkMode.UNKNOWN
+
+
+def _location_implies_onsite(location: str | None) -> bool:
+    if not location:
+        return False
+    from job_scout.services.geo import country_from_text
+
+    key = normalise_key(location)
+    if re.search(r"\b(remote|worldwide|work from anywhere|anywhere)\b", key):
+        return False
+    return country_from_text(location) is not None
 
 
 def classify_from_raw(raw: RawJobRecord, description: str) -> WorkMode:

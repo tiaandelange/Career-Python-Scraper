@@ -72,6 +72,15 @@ def run_all(memory: bool = False) -> dict:
     logger.info("Scrape summary: %s", json.dumps(summary, default=str))
     if pipeline_errors:
         raise RuntimeError("; ".join(pipeline_errors))
+    total_checked = remote.sources_checked + hybrid.sources_checked + onsite.sources_checked
+    total_failed = remote.sources_failed + hybrid.sources_failed + onsite.sources_failed
+    total_raw = remote.raw_jobs + hybrid.raw_jobs + onsite.raw_jobs
+    if total_checked > 0 and total_failed >= total_checked:
+        raise RuntimeError(
+            f"All {total_checked} sources failed across pipelines; scrape produced no usable data."
+        )
+    if total_checked > 0 and total_raw == 0 and total_failed > 0 and total_failed == total_checked:
+        raise RuntimeError("Scrape completed with zero raw jobs and every source failed.")
     return summary
 
 

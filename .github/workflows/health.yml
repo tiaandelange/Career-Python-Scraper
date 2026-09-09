@@ -10,13 +10,14 @@ concurrency:
   group: job-scout-health
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   health:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
-      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       JOB_SCOUT_ENV: github
     steps:
       - uses: actions/checkout@v5
@@ -27,4 +28,7 @@ jobs:
       - name: Install
         run: pip install -e .
       - name: Health check
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: python -m job_scout health

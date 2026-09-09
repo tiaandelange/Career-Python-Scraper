@@ -14,17 +14,14 @@ concurrency:
   group: job-scout-scrape
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
   scrape:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
-      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      USAJOBS_API_KEY: ${{ secrets.USAJOBS_API_KEY }}
-      USAJOBS_USER_AGENT: ${{ secrets.USAJOBS_USER_AGENT }}
-      ADZUNA_APP_ID: ${{ secrets.ADZUNA_APP_ID }}
-      ADZUNA_APP_KEY: ${{ secrets.ADZUNA_APP_KEY }}
       JOB_SCOUT_ENV: github
       JOB_SCOUT_LOG_LEVEL: INFO
       JOB_SCOUT_USER_AGENT: JobScout/1.0 (personal job search; GitHub Actions)
@@ -37,6 +34,9 @@ jobs:
       - name: Install
         run: pip install -e .
       - name: Verify Supabase secrets
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
           if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
             echo "Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY repository secrets."
@@ -44,6 +44,16 @@ jobs:
           fi
           echo "Supabase secrets are present."
       - name: Health preflight
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: python -m job_scout health
       - name: Scrape all pipelines
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          USAJOBS_API_KEY: ${{ secrets.USAJOBS_API_KEY }}
+          USAJOBS_USER_AGENT: ${{ secrets.USAJOBS_USER_AGENT }}
+          ADZUNA_APP_ID: ${{ secrets.ADZUNA_APP_ID }}
+          ADZUNA_APP_KEY: ${{ secrets.ADZUNA_APP_KEY }}
         run: python -m job_scout scrape
