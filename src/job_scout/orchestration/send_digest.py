@@ -1,4 +1,4 @@
-"""08:00 digest. Never marks jobs notified if SMTP send fails."""
+"""08:00 digest. Never marks jobs notified if Resend send fails."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Build / send the morning job digest")
-    parser.add_argument("--send", action="store_true", help="Send via SMTP (requires secrets)")
+    parser.add_argument("--send", action="store_true", help="Send via Resend (requires secrets)")
     parser.add_argument("--memory", action="store_true")
     parser.add_argument("--print-html", action="store_true")
     args = parser.parse_args(argv)
@@ -23,6 +23,9 @@ def main(argv: list[str] | None = None) -> int:
     configure_logging(settings.job_scout_log_level)
     repo = InMemoryJobRepository() if args.memory else build_repository(settings)
     send = bool(args.send or settings.job_scout_send_email)
+    if send and not settings.has_resend():
+        logger.error("Missing RESEND_API_KEY, RESEND_FROM or DIGEST_TO")
+        return 1
     try:
         result = build_and_maybe_send(repo, settings=settings, send=send)
     except Exception:

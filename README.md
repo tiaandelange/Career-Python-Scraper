@@ -63,7 +63,7 @@ See [docs/SUPABASE_SETUP.md](docs/SUPABASE_SETUP.md). Run `supabase/migrations/0
 
 ## 6. Required GitHub Secrets
 
-At minimum: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`. For email: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_TO`. Optional: USAJOBS and Adzuna keys.
+At minimum: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`. For email: `RESEND_API_KEY`, `RESEND_FROM`, `DIGEST_TO`. Optional: USAJOBS and Adzuna keys.
 
 ## 7. How to add another ATS / employer
 
@@ -107,7 +107,7 @@ python -m job_scout digest --print-html
 python -m job_scout digest --send
 ```
 
-`--send` is the only path that marks `last_notified_at`. A failed SMTP send does not mark jobs notified.
+`--send` is the only path that marks `last_notified_at`. A failed Resend send does not mark jobs notified.
 
 ## 14. Troubleshooting
 
@@ -126,9 +126,9 @@ Default stack is intended to stay inside free tiers:
 
 - GitHub-hosted `ubuntu-latest` runners, three scrapes + one digest + one health check per day, short timeouts, pip cache, no artefacts.
 - Supabase free project (scrapes already create activity; health check is a fallback).
-- Frankfurter FX, SMTP (e.g. Gmail app password), public APIs/RSS/ATS.
+- Frankfurter FX, Resend free tier for digests, public APIs/RSS/ATS.
 
-Things that **could** cost money if you turn them on: exceeding GitHub Actions minutes on a paid plan, a paid Supabase plan, a paid SMTP provider, Adzuna overage if you leave the free developer quota, Playwright on Actions (not installed). OpenAI, paid proxies, CAPTCHA solvers and paid job APIs are **not** used.
+Things that **could** cost money if you turn them on: exceeding GitHub Actions minutes on a paid plan, a paid Supabase plan, Resend beyond the free monthly quota, Adzuna overage if you leave the free developer quota, Playwright on Actions (not installed). OpenAI, paid proxies, CAPTCHA solvers and paid job APIs are **not** used.
 
 ## Schedules (Africa/Johannesburg)
 

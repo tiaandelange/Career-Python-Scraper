@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -31,12 +30,9 @@ class Settings(BaseSettings):
     supabase_service_role_key: str = ""
     supabase_anon_key: str = ""
 
-    smtp_host: str = ""
-    smtp_port: int = 587
-    smtp_username: str = ""
-    smtp_password: str = ""
-    smtp_from: str = ""
-    smtp_to: str = ""
+    resend_api_key: str = ""
+    resend_from: str = ""
+    digest_to: str = ""
 
     usajobs_api_key: str = ""
     usajobs_user_agent: str = ""
@@ -58,11 +54,6 @@ class Settings(BaseSettings):
     max_job_age_days: int = 45
     fx_base_currency: str = "USD"
 
-    @field_validator("smtp_port", mode="before")
-    @classmethod
-    def _port(cls, value: Any) -> int:
-        return int(value or 587)
-
     def config_dir(self) -> Path:
         path = Path(self.job_scout_config_dir)
         if path.is_absolute():
@@ -72,8 +63,8 @@ class Settings(BaseSettings):
     def has_supabase(self) -> bool:
         return bool(self.supabase_url and self.supabase_service_role_key)
 
-    def has_smtp(self) -> bool:
-        return bool(self.smtp_host and self.smtp_username and self.smtp_password and self.smtp_to)
+    def has_resend(self) -> bool:
+        return bool(self.resend_api_key and self.resend_from and self.digest_to)
 
 
 @lru_cache(maxsize=1)

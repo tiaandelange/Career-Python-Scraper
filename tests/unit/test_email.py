@@ -1,5 +1,5 @@
 from job_scout.models.enums import FitCategory, WorkMode
-from job_scout.services.email_digest import render_digest_html, salary_label, select_digest_jobs
+from job_scout.services.email_digest import render_digest_html, salary_label, select_digest_jobs, send_resend
 from tests.conftest import canonical_job
 
 
@@ -43,3 +43,38 @@ def test_html_has_three_sections_in_order():
     assert r < h < o
     assert "88" in html or "90" in html
     assert "viewport" in html
+
+
+def test_send_resend_posts_to_api(monkeypatch):
+    from job_scout.config.settings import Settings
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {"id": "re_test"}
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            self.kwargs = kwargs
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def post(self, url, headers=None, json=None):
+            assert url == "https://api.resend.com/emails"
+            assert headers["Authorization"] == "Bearer re_key"
+            assert json["to"] == ["you@example.com"]
+            assert json["from"] == "Job Scout <onboarding@resend.dev>"
+            return FakeResponse()
+
+    monkeypatch.setattr("job_scout.services.email_digest.httpx.Client", FakeClient)
+    settings = Settings(
+        resend_api_key="re_key",
+        resend_from="Job Scout <onboarding@resend.dev>",
+        digest_to="you@example.com",
+    )
+    assert send_resend("Subject", "<p>Hi</p>", settings)["id"] == "re_test"

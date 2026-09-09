@@ -1,14 +1,14 @@
-"""Morning HTML digest. SMTP only; no paid email API."""
+"""Morning HTML digest via Resend (HTTPS API)."""
 
 from __future__ import annotations
 
 import html
 import logging
-import smtplib
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from email.message import EmailMessage
 from typing import Any
+
+import httpx
 
 from job_scout.config.settings import Settings, get_settings, load_scoring
 from job_scout.models.enums import FitCategory, WorkMode
@@ -17,6 +17,8 @@ from job_scout.services.database import JobRepository
 from job_scout.utils.dates import utcnow
 
 logger = logging.getLogger(__name__)
+
+RESEND_API_URL = "https://api.resend.com/emails"
 
 MATERIAL_SCORE_DELTA = 8
 
@@ -209,19 +211,29 @@ def subject_line(selection: DigestSelection, digest_date: date | None = None) ->
     return f"Daily Job Scout — {strong} Strong Matches | {digest_date.strftime('%d %b %Y')}"
 
 
-def send_smtp(subject: str, html_body: str, settings: Settings) -> None:
-    if not settings.has_smtp():
-        raise RuntimeError("SMTP settings are incomplete")
-    message = EmailMessage()
-    message["Subject"] = subject
-    message["From"] = settings.smtp_from or settings.smtp_username
-    message["To"] = settings.smtp_to
-    message.set_content("This digest is HTML. Open it in an HTML-capable client.")
-    message.add_alternative(html_body, subtype="html")
-    with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=30) as smtp:
-        smtp.starttls()
-        smtp.login(settings.smtp_username, settings.smtp_password)
-        smtp.send_message(message)
+def send_resend(subject: str, html_body: str, settings: Settings) -> dict[str, Any]:
+    if not settings.has_resend():
+        raise RuntimeError(
+            "Resend settings are incomplete. Set RESEND_API_KEY, RESEND_FROM and DIGEST_TO."
+        )
+    payload = {
+        "from": settings.resend_from,
+        "to": [settings.digest_to],
+        "subject": subject,
+        "html": html_body,
+        "text": "This digest is HTML. Open it in an HTML-capable client.",
+    }
+    headers = {
+        "Authorization": f"Bearer {settings.resend_api_key}",
+        "Content-Type": "application/json",
+    }
+    with httpx.Client(timeout=30.0) as client:
+        response = client.post(RESEND_API_URL, headers=headers, json=payload)
+        if response.status_code >= 400:
+            raise RuntimeError(f"Resend API error {response.status_code}: {response.text}")
+        data = response.json()
+    logger.info("Resend accepted digest email id=%s", data.get("id"))
+    return data if isinstance(data, dict) else {"raw": data}
 
 
 def build_and_maybe_send(
@@ -265,7 +277,7 @@ def build_and_maybe_send(
         "sent": False,
     }
     if send:
-        send_smtp(subject, html_body, settings)
+        send_resend(subject, html_body, settings)
         when = utcnow()
         repo.mark_notified(result["jobs"], when)
         repo.record_digest_run(
@@ -274,7 +286,7 @@ def build_and_maybe_send(
                 "generated_at": when,
                 "jobs_included": len(result["jobs"]),
                 "delivery_status": "sent",
-                "recipient": settings.smtp_to,
+                "recipient": settings.digest_to,
             }
         )
         result["sent"] = True
@@ -285,7 +297,7 @@ def build_and_maybe_send(
                 "generated_at": utcnow(),
                 "jobs_included": len(result["jobs"]),
                 "delivery_status": "dry_run",
-                "recipient": settings.smtp_to or "unset",
+                "recipient": settings.digest_to or "unset",
             }
         )
     return result

@@ -17,12 +17,9 @@ jobs:
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      SMTP_HOST: ${{ secrets.SMTP_HOST }}
-      SMTP_PORT: ${{ secrets.SMTP_PORT }}
-      SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
-      SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
-      SMTP_FROM: ${{ secrets.SMTP_FROM }}
-      SMTP_TO: ${{ secrets.SMTP_TO }}
+      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+      RESEND_FROM: ${{ secrets.RESEND_FROM }}
+      DIGEST_TO: ${{ secrets.DIGEST_TO }}
       JOB_SCOUT_ENV: github
       JOB_SCOUT_SEND_EMAIL: "true"
     steps:
@@ -33,5 +30,12 @@ jobs:
           cache: pip
       - name: Install
         run: pip install -e .
+      - name: Verify Resend secrets
+        run: |
+          if [ -z "$RESEND_API_KEY" ] || [ -z "$RESEND_FROM" ] || [ -z "$DIGEST_TO" ]; then
+            echo "Missing RESEND_API_KEY, RESEND_FROM or DIGEST_TO repository secrets."
+            exit 1
+          fi
+          echo "Resend secrets are present."
       - name: Send digest
         run: python -m job_scout digest --send
