@@ -74,6 +74,8 @@ def test_job_excerpt_is_short():
     assert len(blurb) <= 230
     assert "Mechanical design" in blurb
 
+
+def test_send_resend_posts_to_api(monkeypatch):
     from job_scout.config.settings import Settings
 
     class FakeResponse:
