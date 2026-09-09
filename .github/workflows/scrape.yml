@@ -1,0 +1,40 @@
+name: scrape
+
+on:
+  schedule:
+    - cron: "0 10 * * *"
+      timezone: "Africa/Johannesburg"
+    - cron: "0 14 * * *"
+      timezone: "Africa/Johannesburg"
+    - cron: "0 22 * * *"
+      timezone: "Africa/Johannesburg"
+  workflow_dispatch:
+
+concurrency:
+  group: job-scout-scrape
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      USAJOBS_API_KEY: ${{ secrets.USAJOBS_API_KEY }}
+      USAJOBS_USER_AGENT: ${{ secrets.USAJOBS_USER_AGENT }}
+      ADZUNA_APP_ID: ${{ secrets.ADZUNA_APP_ID }}
+      ADZUNA_APP_KEY: ${{ secrets.ADZUNA_APP_KEY }}
+      JOB_SCOUT_ENV: github
+      JOB_SCOUT_LOG_LEVEL: INFO
+      JOB_SCOUT_USER_AGENT: JobScout/1.0 (personal job search; GitHub Actions)
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: pip install -e .
+      - name: Scrape all pipelines
+        run: python -m job_scout scrape

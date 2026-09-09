@@ -1,0 +1,37 @@
+# Employer-published salary only. Never invent figures. Never treat Glassdoor
+# or similar estimates as published salary.
+
+currency_floors_monthly:
+  ZAR: 70000
+  USD: 4500
+  EUR: 4000
+
+default_international_floor:
+  currency: USD
+  amount_monthly: 4500
+
+no_maximum: true
+
+rules:
+  onsite_requires_published_salary: true
+  hybrid_requires_published_salary: true
+  remote_allows_missing_salary: true
+  reject_known_salary_below_floor: true
+  range_uses_lower_bound: true
+  never_invent_missing_salary: true
+  never_infer_from_glassdoor_or_estimates: true
+  store_published_separately_from_estimates: true
+
+fx:
+  provider: frankfurter
+  api_url: https://api.frankfurter.dev/v1/latest
+  cache_daily: true
+  fallback_to_stale_cache: true
+  never_fabricate_rate: true
+
+normalisation:
+  annual_divisor: 12
+  weekly_multiplier: 4.3333333333  # 52 / 12
+  daily_days_per_week: 5
+  hourly_hours_per_week: 40
+  weeks_per_year: 52

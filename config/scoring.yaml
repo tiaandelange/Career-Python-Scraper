@@ -1,0 +1,184 @@
+weights:
+  professional_relevance: 25
+  skills: 18
+  seniority: 8
+  sector: 12
+  leadership_pm: 10
+  digital_transferability: 6
+  operations_alt: 6
+  compensation: 7
+  work_mode: 5
+  international_mobility: 3
+
+categories:
+  Exceptional: [90, 100]
+  Strong: [80, 89]
+  Good: [70, 79]
+  Possible: [60, 69]
+  Low: [0, 59]
+
+digest_minimum_category: Good
+low_score_cutoff: 60
+
+professional_positive:
+  - mechanical engineer
+  - mechanical design
+  - chief engineer
+  - design engineer
+  - water
+  - dam
+  - reservoir
+  - pipeline
+  - piping
+  - pump
+  - pumping
+  - valve
+  - hydraulic
+  - infrastructure
+  - rotating equipment
+  - plant
+  - water treatment
+  - irrigation
+  - bulk water
+  - geomembrane
+  - HDPE
+  - PVC liner
+
+skills_positive:
+  - specification
+  - boq
+  - bill of quantities
+  - design report
+  - technical review
+  - site inspection
+  - qa/qc
+  - quality control
+  - manufacturing inspection
+  - corrosion
+  - materials
+  - fidic
+  - gcc
+  - sans
+  - dws
+  - contractor
+  - consultant
+  - project management
+  - mechanical equipment
+
+seniority_positive:
+  - senior
+  - lead
+  - principal
+  - manager
+  - chief
+  - head of
+  - director
+
+seniority_not_required:
+  - mid-level
+  - intermediate
+
+sectors_high:
+  - water
+  - infrastructure
+  - engineering consulting
+  - epc
+  - epcm
+  - utilities
+  - mining
+  - energy
+  - industrial
+  - mechanical equipment
+  - asset management
+  - dams
+  - wastewater
+  - irrigation
+
+leadership_positive:
+  - team lead
+  - leadership
+  - multidisciplinary
+  - budget
+  - contractor
+  - programme
+  - program delivery
+  - project delivery
+  - staff
+  - acting chief
+  - chief
+
+digital_positive:
+  - next.js
+  - supabase
+  - automation
+  - workflow
+  - ai-assisted
+  - web development
+  - business process
+  - low-code
+  - no-code
+  - technical product
+
+digital_overclaim_penalties:
+  - senior software engineer
+  - staff software engineer
+  - principal software engineer
+  - java architect
+  - .net architect
+  - embedded firmware
+  - compiler
+  - distributed systems architect
+  - machine learning engineer
+  - data scientist
+  - kubernetes platform
+  - sre
+  - backend engineer
+  - frontend engineer
+  - full stack engineer
+  - software architect
+
+unrelated_roles:
+  - surgeon
+  - physician
+  - nurse
+  - accountant
+  - auditor
+  - lawyer
+  - attorney
+  - pharmacist
+  - dentist
+  - teacher
+  - chef
+  - truck driver
+  - police
+  - registered nurse
+
+operations_positive:
+  - farm manager
+  - estate manager
+  - lodge manager
+  - guesthouse
+  - facilities manager
+  - property operations
+  - hospitality
+  - operations manager
+
+work_mode_boost:
+  remote_global: 5
+  remote_unknown: 1
+  hybrid: 1
+  onsite: 0
+
+mobility_boost:
+  visa_sponsorship: 8
+  relocation: 5
+  globally_distributed: 3
+
+mobility_penalty:
+  citizenship_required: 18
+  unrestricted_work_rights: 14
+  missing_licence: 10
+
+compensation:
+  bonus_start_multiple_of_floor: 1.15
+  max_bonus_points: 7

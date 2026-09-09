@@ -1,0 +1,30 @@
+name: health
+
+on:
+  schedule:
+    - cron: "30 6 * * *"
+      timezone: "Africa/Johannesburg"
+  workflow_dispatch:
+
+concurrency:
+  group: job-scout-health
+  cancel-in-progress: true
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      JOB_SCOUT_ENV: github
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: pip install -e .
+      - name: Health check
+        run: python -m job_scout health

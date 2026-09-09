@@ -1,0 +1,236 @@
+defaults:
+  timeout_seconds: 25
+  retries: 3
+  backoff_seconds: 1.5
+  request_delay_seconds: 1.0
+  max_pages: 4
+  max_job_age_days: 45
+  max_jobs_per_source: 250
+  user_agent_env: JOB_SCOUT_USER_AGENT
+
+# Each source is independently enabled. Adapters never scrape behind
+# CAPTCHAs, logins, or anti-bot walls. LinkedIn and Indeed are excluded.
+
+sources:
+  remoteok:
+    enabled: true
+    adapter: job_scout.adapters.remote.remoteok:RemoteOKAdapter
+    source_type: api
+    pipelines: [remote]
+    regions: [global]
+    coverage: {remote: true, hybrid: false, onsite: false}
+    preference: aggregator
+    free: true
+    auth_required: false
+    javascript_required: false
+    salary_often_available: true
+    notes: Official public JSON dump. One request. Filter client-side.
+
+  remotive:
+    enabled: true
+    adapter: job_scout.adapters.remote.remotive:RemotiveAdapter
+    source_type: api
+    pipelines: [remote]
+    regions: [global]
+    coverage: {remote: true, hybrid: false, onsite: false}
+    preference: specialist_board
+    free: true
+    auth_required: false
+    javascript_required: false
+    salary_often_available: false
+    notes: Official public API. Category + search filters.
+
+  jobicy:
+    enabled: true
+    adapter: job_scout.adapters.remote.jobicy:JobicyAdapter
+    source_type: api
+    pipelines: [remote]
+    regions: [global]
+    coverage: {remote: true, hybrid: false, onsite: false}
+    preference: specialist_board
+    free: true
+    auth_required: false
+    javascript_required: false
+    salary_often_available: true
+    notes: Official public API, max 100 jobs per call. No key.
+
+  himalayas:
+    enabled: true
+    adapter: job_scout.adapters.remote.himalayas:HimalayasAdapter
+    source_type: api
+    pipelines: [remote]
+    regions: [global]
+    coverage: {remote: true, hybrid: false, onsite: false}
+    preference: specialist_board
+    free: true
+    auth_required: false
+    javascript_required: false
+    salary_often_available: true
+    max_pages: 3
+    notes: Official public API with location and timezone restrictions. 20 jobs/page. Daily cache on their side.
+
+  weworkremotely:
+    enabled: true
+    adapter: job_scout.adapters.remote.weworkremotely:WeWorkRemotelyAdapter
+    source_type: rss
+    pipelines: [remote]
+    regions: [global]
+    coverage: {remote: true, hybrid: false, onsite: false}
+    preference: specialist_board
+    free: true
+    auth_required: false
+    javascript_required: false
+    salary_often_available: false
+    notes: Official category RSS feeds. No HTML scraping.
+
+  greenhouse:
+    enabled: true
+    adapter: job_scout.adapters.ats.greenhouse:GreenhouseAdapter
+    source_type: ats
+    pipelines: [remote, hybrid, onsite]
+    regions: [global, ZA, US, EU, AU]
+    coverage: {remote: true, hybrid: true, onsite: true}
+    preference: employer_ats
+    free: true
+    auth_required: false
+    javascript_required: false
+    salary_often_available: false
+    employers: []
+    notes: Public boards API. Add verified board tokens only. Guessed engineering-firm slugs 404'd and were removed.
+
+  lever:
+    enabled: true
+    adapter: job_scout.adapters.ats.lever:LeverAdapter
+    source_type: ats
+    pipelines: [remote, hybrid, onsite]
+    regions: [global, ZA, US, EU, AU]
+    coverage: {remote: true, hybrid: true, onsite: true}
+    preference: employer_ats
+    free: true
+    auth_required: false
+    javascript_required: false
+    salary_often_available: false
+    employers: []
+    notes: Public postings JSON. Add verified Lever site slugs only.
+
+  ashby:
+    enabled: true
+    adapter: job_scout.adapters.ats.ashby:AshbyAdapter
+    source_type: ats
+    pipelines: [remote, hybrid, onsite]
+    regions: [global, US, EU]
+    coverage: {remote: true, hybrid: true, onsite: true}
+    preference: employer_ats
+    free: true
+    auth_required: false
+    javascript_required: false
+    salary_often_available: true
+    employers: []
+    notes: Enabled with an empty employer list until verified slugs are added.
+
+  smartrecruiters:
+    enabled: true
+    adapter: job_scout.adapters.ats.smartrecruiters:SmartRecruitersAdapter
+    source_type: ats
+    pipelines: [remote, hybrid, onsite]
+    regions: [global, ZA, US, EU, AU]
+    coverage: {remote: true, hybrid: true, onsite: true}
+    preference: employer_ats
+    free: true
+    auth_required: false
+    javascript_required: false
+    salary_often_available: false
+    employers: []
+    notes: Public company postings API with offset pagination. Add verified company identifiers only.
+
+  workable:
+    enabled: true
+    adapter: job_scout.adapters.ats.workable:WorkableAdapter
+    source_type: ats
+    pipelines: [remote, hybrid, onsite]
+    regions: [global, ZA, US, EU, AU]
+    coverage: {remote: true, hybrid: true, onsite: true}
+    preference: employer_ats
+    free: true
+    auth_required: false
+    javascript_required: false
+    salary_often_available: false
+    employers: []
+    notes: Public widget JSON. Empty employer list until slugs are verified.
+
+  eures:
+    enabled: true
+    adapter: job_scout.adapters.regional.eures:EuresAdapter
+    source_type: api
+    pipelines: [hybrid, onsite]
+    regions: [EU, EEA]
+    coverage: {remote: false, hybrid: true, onsite: true}
+    preference: government
+    free: true
+    auth_required: false
+    javascript_required: false
+    salary_often_available: true
+    max_pages: 2
+    notes: Official EU EURES public job-search JSON. Keyword-limited queries.
+
+  arbeitnow:
+    enabled: true
+    adapter: job_scout.adapters.regional.arbeitnow:ArbeitnowAdapter
+    source_type: api
+    pipelines: [hybrid, onsite, remote]
+    regions: [EU]
+    coverage: {remote: true, hybrid: true, onsite: true}
+    preference: specialist_board
+    free: true
+    auth_required: false
+    javascript_required: false
+    salary_often_available: false
+    notes: Public European job-board JSON API. No key.
+
+  usajobs:
+    enabled: false
+    adapter: job_scout.adapters.regional.usajobs:UsaJobsAdapter
+    source_type: api
+    pipelines: [hybrid, onsite]
+    regions: [US]
+    coverage: {remote: true, hybrid: true, onsite: true}
+    preference: government
+    free: true
+    auth_required: true
+    javascript_required: false
+    salary_often_available: true
+    notes: Official USAJOBS API. Disabled until USAJOBS_API_KEY is set. Many roles require US citizenship.
+
+  adzuna:
+    enabled: false
+    adapter: job_scout.adapters.regional.adzuna:AdzunaAdapter
+    source_type: api
+    pipelines: [hybrid, onsite]
+    regions: [ZA, US, AU, GB, DE, FR, NL]
+    coverage: {remote: true, hybrid: true, onsite: true}
+    preference: aggregator
+    free: true
+    auth_required: true
+    javascript_required: false
+    salary_often_available: true
+    notes: Official free developer API with salary fields. Disabled until ADZUNA_APP_ID and ADZUNA_APP_KEY are set.
+
+disabled_not_implemented:
+  linkedin:
+    reason: ToS / anti-bot. Not a project dependency.
+  indeed:
+    reason: ToS / anti-bot. Not a project dependency.
+  pnet:
+    reason: No official public API; HTML is JS-heavy and not permitted automation.
+  careerjunction:
+    reason: No official public API.
+  seek:
+    reason: No official public API; commercial ToS restrict scraping.
+  glassdoor:
+    reason: Estimates are forbidden as salary evidence; site is anti-bot.
+  dpsa_circular:
+    reason: Weekly PDF circular, not a stable job JSON/RSS API. Manual review only.
+  aps_jobs:
+    reason: Salesforce/JS career site; would need browser automation.
+  workday:
+    reason: Undocumented POST career-site endpoints; not treated as an official public API.

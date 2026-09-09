@@ -1,0 +1,274 @@
+candidate:
+  name: "Mechanical / infrastructure engineer"
+  summary: >
+    BEng Mechanical Engineering professional with ECSA registration, mechanical
+    design and engineering experience, and acting Chief Engineer / mechanical
+    design leadership. Strong water-infrastructure background covering dams and
+    water-control works, pipelines, pumps, valves and mechanical equipment,
+    specifications, BOQs, design reports, technical reviews, site inspections,
+    QA/QC, manufacturing inspections, materials and corrosion, contractor and
+    consultant coordination, engineering project management, and contract /
+    technical administration. Familiar with DWS engineering standards, SANS,
+    GCC and FIDIC environments, plus leadership of multidisciplinary teams.
+  qualifications:
+    - BEng Mechanical Engineering
+    - ECSA registered engineering professional
+  do_not_claim:
+    - career senior software engineer
+    - deep traditional computer-science / software-architecture specialism
+    - US, EU or Australian work rights unless a role offers sponsorship
+
+primary_capabilities:
+  - mechanical design
+  - mechanical engineering
+  - engineering leadership
+  - chief engineer
+  - water infrastructure
+  - dams
+  - water-control infrastructure
+  - pipelines
+  - pumps
+  - pumping systems
+  - valves
+  - mechanical equipment
+  - mechanical specifications
+  - bills of quantities
+  - engineering design reports
+  - technical reviews
+  - site inspections
+  - quality assurance
+  - quality control
+  - manufacturing inspections
+  - materials
+  - corrosion
+  - contractor coordination
+  - consultant coordination
+  - engineering project management
+  - contract administration
+  - technical administration
+  - DWS engineering standards
+  - SANS
+  - GCC
+  - FIDIC
+  - multidisciplinary coordination
+
+digital_transferable:
+  note: >
+    Legitimate founder / lead-developer style experience with AI-assisted
+    software development, web development, Next.js, Supabase, workflow
+    automation, business systems, SEO and digital product development.
+    Do not score as equivalent to a career senior software engineer where
+    the advertisement requires deep traditional CS experience.
+  skills:
+    - AI-assisted software development
+    - web development
+    - Next.js
+    - Supabase
+    - workflow automation
+    - business systems
+    - SEO
+    - digital product development
+    - technical problem solving
+    - low-code
+    - no-code
+    - process automation
+  not_equivalent_to:
+    - senior software engineer
+    - staff software engineer
+    - principal software engineer
+    - java architect
+    - solutions architect (enterprise java/.net)
+    - machine learning researcher
+    - data scientist (research)
+    - embedded firmware specialist
+    - kernel / systems programmer
+
+business_operational:
+  - project management
+  - operations management
+  - technical business management
+  - procurement
+  - estimating
+  - quotations
+  - contractors
+  - asset management
+  - staff coordination
+  - budget management
+  - client management
+  - farm operations
+  - guesthouse operations
+  - property operations
+
+job_families:
+  engineering:
+    weight: 1.0
+    titles:
+      - Mechanical Engineer
+      - Senior Mechanical Engineer
+      - Lead Mechanical Engineer
+      - Principal Mechanical Engineer
+      - Chief Engineer
+      - Chief Mechanical Engineer
+      - Chief Design Engineer
+      - Design Engineer
+      - Mechanical Design Engineer
+      - Project Engineer
+      - Water Engineer
+      - Infrastructure Engineer
+      - Pipeline Engineer
+      - Pump Engineer
+      - Rotating Equipment Engineer
+      - Asset Engineer
+      - Reliability Engineer
+      - Maintenance Engineer
+      - Engineering Manager
+      - Design Manager
+      - Technical Manager
+    keywords:
+      - mechanical
+      - piping
+      - pipeline
+      - pump
+      - valve
+      - dam
+      - reservoir
+      - water
+      - hydraulic
+      - rotating equipment
+      - plant
+      - infrastructure
+  project_management:
+    weight: 0.9
+    titles:
+      - Project Manager
+      - Senior Project Manager
+      - Engineering Project Manager
+      - Programme Manager
+      - Program Manager
+      - Technical Project Manager
+      - Construction Project Manager
+      - Operations Manager
+      - Technical Operations Manager
+      - Asset Manager
+    keywords:
+      - project manager
+      - programme
+      - delivery
+      - EPC
+      - EPCM
+      - construction management
+      - operations manager
+      - asset manager
+  digital_automation:
+    weight: 0.55
+    titles:
+      - Technical Product Manager
+      - Automation Specialist
+      - AI Automation Specialist
+      - Technical Consultant
+      - Solutions Engineer
+      - Implementation Engineer
+      - Low-code Developer
+      - Web Developer
+      - Full Stack Developer
+    keywords:
+      - automation
+      - next.js
+      - supabase
+      - workflow
+      - no-code
+      - low-code
+      - implementation engineer
+      - solutions engineer
+      - technical consultant
+      - product manager
+    caution: >
+      Adjacent digital roles are in-scope only where practical web / automation
+      skills are plausibly sufficient. Deep CS-only roles are out of scope.
+  operations:
+    weight: 0.7
+    titles:
+      - Farm Manager
+      - Estate Manager
+      - Guesthouse Manager
+      - Lodge Manager
+      - Property Operations Manager
+      - Facilities Manager
+      - Technical Facilities Manager
+    keywords:
+      - farm manager
+      - estate manager
+      - lodge
+      - guesthouse
+      - facilities
+      - property operations
+      - hospitality operations
+
+geographic:
+  remote:
+    origin_anywhere: true
+    prefer_scopes:
+      - worldwide
+      - anywhere
+      - global
+      - emea
+      - africa
+      - south_africa
+      - timezone_compatible
+    reject_if_explicitly_excludes_south_africa: true
+    keep_unknown: true
+    flag_unknown: true
+  onsite_hybrid_countries:
+    - ZA
+    - US
+    - AU
+    - AT
+    - BE
+    - BG
+    - HR
+    - CY
+    - CZ
+    - DK
+    - EE
+    - FI
+    - FR
+    - DE
+    - GR
+    - HU
+    - IE
+    - IT
+    - LV
+    - LT
+    - LU
+    - MT
+    - NL
+    - PL
+    - PT
+    - RO
+    - SK
+    - SI
+    - ES
+    - SE
+    - IS
+    - LI
+    - NO
+  search_regions:
+    - South Africa
+    - United States
+    - European Union / EEA
+    - Australia
+  assume_work_rights:
+    ZA: true
+    US: false
+    AU: false
+    EU: false
+    EEA: false
+
+hard_filters:
+  reject_inactive: true
+  reject_expired: true
+  reject_empty_title: true
+  reject_empty_company_optional: false
+  flag_unknown_visa_status: true
+  never_invent_salary: true
+  never_use_third_party_salary_estimates: true
