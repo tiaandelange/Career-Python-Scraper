@@ -29,7 +29,8 @@ _ENGINEERING = re.compile(
     r"water\s+(?:and\s+)?sanitation|hydraul(?:ic|ics)|hydrolog|"
     r"pipeline|pump(?:ing)?|dam(?:s)?|reservoir|irrigation|"
     r"infrastructure|works\s+inspector|technician\s*\(?ohs\)?|"
-    r"ecsa|professional\s+engineer"
+    r"ecsa|professional\s+engineer|fitter|boilermaker|scada|process\s+controller|"
+    r"maintenance\s+officer|plant\s+operator"
     r")\b",
     re.IGNORECASE,
 )
@@ -154,3 +155,56 @@ def parse_circular_text(text: str, *, source_pdf_url: str, department_hint: str 
 def section_is_relevant(label: str, hints: Iterable[str] = DEFAULT_SECTION_HINTS) -> bool:
     lowered = label.lower()
     return any(h in lowered for h in hints)
+
+
+def parse_single_osd_advert(
+    text: str,
+    *,
+    post_id: str,
+    title_hint: str | None = None,
+    source_pdf_url: str,
+    department_hint: str | None = None,
+) -> DpsaPost | None:
+    """Parse a single-post DWS-style OSD advert PDF (no POST N/N header)."""
+    title = _clean_field(title_hint) or ""
+    if not title:
+        # First non-boilerplate line that looks like a post title
+        for line in text.splitlines():
+            cleaned = line.strip()
+            if len(cleaned) < 12:
+                continue
+            if re.search(r"\b(engineer|technolog|technician|project\s+manager|director)\b", cleaned, re.I):
+                title = cleaned
+                break
+    if not is_engineering_relevant(title, text):
+        return None
+    salary_m = re.search(
+        r"SALARY\s*:?\s*(.+?)(?=\n\s*CENTRE|\n\s*REQUIREMENTS|\n\s*DUTIES|\n\s*ENQUIRIES|\n\s*NOTE\b)",
+        text,
+        re.IGNORECASE | re.DOTALL,
+    )
+    if not salary_m:
+        salary_m = re.search(r"SALARY\s*:?\s*([^\n]+)", text, re.IGNORECASE)
+    centre_m = re.search(
+        r"CENTRE\s*:?\s*(.+?)(?=\n\s*REQUIREMENTS|\n\s*DUTIES|\n\s*ENQUIRIES|\n\s*NOTE\b)",
+        text,
+        re.IGNORECASE | re.DOTALL,
+    )
+    if not centre_m:
+        centre_m = re.search(r"CENTRE\s*:?\s*([^\n]+)", text, re.IGNORECASE)
+    closing_m = _CLOSING.search(text)
+    closing = None
+    if closing_m:
+        dt = parse_datetime(closing_m.group(1))
+        closing = dt.date() if dt else None
+    return DpsaPost(
+        post_id=post_id,
+        title=title,
+        ref_no=post_id,
+        salary_text=_clean_field(salary_m.group(1) if salary_m else None),
+        centre=_clean_field(centre_m.group(1) if centre_m else None),
+        closing_date=closing,
+        body=text[:4000],
+        source_pdf_url=source_pdf_url,
+        department_hint=department_hint,
+    )

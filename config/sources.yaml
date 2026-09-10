@@ -240,7 +240,86 @@ sources:
       Weekly DPSA Public Service Vacancy Circular section PDFs (e.g. Limpopo s.pdf).
       Parses annual ZAR salaries (OSD grades). Filters to engineering/infra keywords.
       National DWS and provincial Engineering Services posts appear here when advertised.
-      limpopo.gov / dws.gov career HTML pages are not used — vacancies route via DPSA.
+
+  dws_vacancies:
+    enabled: true
+    adapter: job_scout.adapters.regional.dws_vacancies:DwsVacanciesAdapter
+    source_type: html
+    pipelines: [onsite, hybrid]
+    regions: [ZA]
+    coverage: {remote: false, hybrid: true, onsite: true}
+    preference: government
+    free: true
+    auth_required: false
+    javascript_required: false
+    salary_often_available: true
+    max_bulletins: 3
+    notes: >
+      Department of Water and Sanitation HTML bulletins (vacancies/default.aspx →
+      current/{date}.aspx) with per-post PDFs and erecruitment.dws.gov.za apply links.
+
+  dpwi_vacancies:
+    enabled: true
+    adapter: job_scout.adapters.regional.dpwi_vacancies:DpwiVacanciesAdapter
+    source_type: html
+    pipelines: [onsite, hybrid]
+    regions: [ZA]
+    coverage: {remote: false, hybrid: true, onsite: true}
+    preference: government
+    free: true
+    auth_required: false
+    javascript_required: false
+    salary_often_available: true
+    max_pdfs: 3
+    notes: >
+      DPWI vacancies.html index of DPSA-format PDF adverts (mechanical / civil /
+      construction project management). Complements the weekly DPSA circular.
+
+  sanral_vacancies:
+    enabled: false
+    adapter: job_scout.adapters.regional.sanral_vacancies:SanralVacanciesAdapter
+    source_type: html
+    pipelines: [onsite, hybrid]
+    regions: [ZA]
+    coverage: {remote: false, hybrid: true, onsite: true}
+    preference: government
+    free: true
+    auth_required: false
+    javascript_required: true
+    salary_often_available: false
+    notes: >
+      SANRAL open vacancies at nra.co.za/sanral-careers. Listing is JS-rendered;
+      disabled until a non-JS feed or Playwright path is approved.
+
+  sa_pdf_boards:
+    enabled: true
+    adapter: job_scout.adapters.regional.sa_pdf_boards:SaPdfBoardAdapter
+    source_type: html
+    pipelines: [onsite, hybrid]
+    regions: [ZA]
+    coverage: {remote: false, hybrid: true, onsite: true}
+    preference: government
+    free: true
+    auth_required: false
+    javascript_required: false
+    salary_often_available: true
+    max_pdfs_per_board: 10
+    boards:
+      - slug: magalies_water
+        name: Magalies Water
+        index_url: https://magalieswater.co.za/job-openings/
+        hosts: [magalieswater.co.za, www.magalieswater.co.za]
+      - slug: lepelle_northern_water
+        name: Lepelle Northern Water
+        index_url: https://lepellewater.co.za/vacancies/
+        hosts: [lepellewater.co.za, www.lepellewater.co.za]
+      - slug: overberg_water
+        name: Overberg Water
+        index_url: https://www.overbergwater.co.za/index.php/contact-us?id=10&layout=edit&view=article
+        hosts: [www.overbergwater.co.za, overbergwater.co.za]
+    notes: >
+      Water-board / SOE HTML indexes that publish vacancy PDFs (Magalies, Lepelle,
+      Overberg). Complements DWS bulletins and DPSA circulars.
 
   usajobs:
     enabled: false
@@ -283,8 +362,18 @@ disabled_not_implemented:
     reason: Gazette notices are not a stable vacancy API; engineer posts are covered via DPSA circular PDFs.
   limpopo_gov_site:
     reason: Provincial marketing site; vacancies are published through DPSA circular section PDFs.
-  dws_gov_careers:
-    reason: DWS vacancies.aspx is not a usable job feed; DWS posts appear in DPSA circulars when advertised.
+  western_cape_erecruit:
+    reason: >
+      westerncapegov.erecruit.co categories are present but job cards need authenticated/search
+      session handling; track separately from static HTML/PDF boards.
+  gauteng_jobs_portal:
+    reason: jobs.gauteng.gov.za is a thin landing page; listings need deeper portal session work.
+  city_of_joburg_vacancies:
+    reason: SharePoint vacancy index currently points to thin category pages, not scrapeable job PDFs.
+  sanral_js_careers:
+    reason: nra.co.za open-vacancies table is JS-rendered (adapter exists but disabled).
+  rand_water_erecruit:
+    reason: erecruit portal / login-gated; no stable unauthenticated HTML feed.
   pnet:
     reason: No official public API; HTML is JS-heavy and not permitted automation.
   careerjunction:

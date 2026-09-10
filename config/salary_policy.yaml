@@ -12,6 +12,12 @@ public_service:
   zar_annual_floor: 350000
   source_names:
     - dpsa_circular
+    - dws_vacancies
+    - dpwi_vacancies
+    - sa_pdf_boards
+    - sa_pdf_boards:magalies_water
+    - sa_pdf_boards:lepelle_northern_water
+    - sa_pdf_boards:overberg_water
 
 default_international_floor:
   currency: USD

@@ -407,7 +407,8 @@ def geo_from_raw(raw: RawJobRecord, description: str) -> GeoSnapshot:
         snapshot.country_name = COUNTRY_NAMES.get(snapshot.country_code or "")
     # DPSA / SA public-service posts are always ZA even when centre is "Head Office".
     if not snapshot.country_code and (
-        raw.source_name == "dpsa_circular"
+        raw.source_name in {"dpsa_circular", "dws_vacancies", "dpwi_vacancies"}
+        or raw.source_name.startswith("sa_pdf_boards")
         or (raw.source_preference == SourcePreference.GOVERNMENT and "south africa" in normalise_key(raw.company or ""))
     ):
         snapshot.country_code = "ZA"

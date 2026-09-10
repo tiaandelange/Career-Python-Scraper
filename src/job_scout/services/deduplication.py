@@ -39,6 +39,10 @@ def _shared_document_url(url: str | None) -> bool:
         return True
     if "dpsa.gov.za" in lowered and ("/psvc" in lowered or "/vacancies/" in lowered):
         return True
+    if "dws.gov.za" in lowered and ("/vacancies" in lowered or "/vacancies20" in lowered):
+        return True
+    if "publicworks.gov.za" in lowered and ("vacanc" in lowered or ".pdf" in lowered):
+        return True
     return False
 
 

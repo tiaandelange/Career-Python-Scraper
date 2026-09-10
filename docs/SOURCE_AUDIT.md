@@ -156,7 +156,44 @@ Preference order used throughout: official public API → official RSS → publi
 - **Stability:** Medium (PDF layout quirks); URL pattern is stable week-to-week
 - **Adapter:** `job_scout.adapters.regional.dpsa_circular.DpsaCircularAdapter`
 - **Enabled:** Yes
-- **Reason:** This is how SA government Engineering Services / DWS-adjacent posts are advertised. Direct `dws.gov.za` careers HTML and `limpopo.gov.za` are not usable feeds; Government Gazette notices are not treated as the vacancy channel.
+- **Reason:** Primary weekly channel for national and provincial public-service engineering posts (OSD salaries).
+
+### DWS Vacancies (ZA HTML bulletins)
+- **URL/domain:** https://www.dws.gov.za/vacancies/default.aspx → `current/{date}.aspx`
+- **Region:** South Africa (Department of Water and Sanitation)
+- **Coverage:** On-site engineering / technologist / water-resource posts
+- **Access:** HTML bulletin tables with per-post PDFs; apply via https://erecruitment.dws.gov.za
+- **Auth:** No
+- **Free:** Yes
+- **Salary:** Usually published annual ZAR OSD packages in the PDF
+- **Pagination:** Latest N bulletins (default 3)
+- **JavaScript:** No
+- **Adapter:** `job_scout.adapters.regional.dws_vacancies.DwsVacanciesAdapter`
+- **Enabled:** Yes
+- **Reason:** Direct DWS feed updated regularly; earlier audit incorrectly assumed the ASPX pages were unusable.
+
+### DPWI Vacancies (ZA PDF index)
+- **URL/domain:** http://www.publicworks.gov.za/vacancies.html
+- **Region:** South Africa (Public Works & Infrastructure)
+- **Coverage:** Mechanical / civil / construction project management
+- **Access:** HTML index of DPSA-format PDF adverts
+- **Adapter:** `job_scout.adapters.regional.dpwi_vacancies.DpwiVacanciesAdapter`
+- **Enabled:** Yes
+
+### SA PDF boards (water boards)
+- **Boards:** Magalies Water, Lepelle Northern Water, Overberg Water
+- **Access:** HTML indexes linking vacancy PDFs
+- **Adapter:** `job_scout.adapters.regional.sa_pdf_boards.SaPdfBoardAdapter`
+- **Enabled:** Yes
+
+### Next candidates (researched, not yet enabled)
+- Western Cape / Gauteng e-recruit portals — need session or search-form handling
+- City of Johannesburg SharePoint vacancies — thin index today
+- SANRAL careers table — JS-rendered (adapter stub exists, disabled)
+- Rand Water / Eskom — login or portal-down
+- Provincial OTP e-recruit (Limpopo, EC, Mpumalanga) — ASP.NET ViewState / login friction
+
+Provincial engineering posts remain largely covered via **DPSA circular section PDFs**.
 
 ### Remote1stJobs
 - **URL/domain:** remote1stjobs.com
