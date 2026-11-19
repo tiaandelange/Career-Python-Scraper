@@ -60,7 +60,7 @@ def test_summary_email_is_compact_with_dashboard_link():
     )
     assert 'href="https://owner.github.io/repo/?new=1"' in html
     assert "Open the jobs dashboard" in html
-    assert "New matches" in html and "New in the US" in html and "Sponsorship stated" in html
+    assert "New matches" in html and "New in the US" in html and "Visa sponsors" in html
     assert "140" in html
     # Only the top five are listed; the rest live on the dashboard.
     assert 'href="https://example.com/job/0"' in html

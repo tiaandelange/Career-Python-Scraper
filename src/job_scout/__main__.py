@@ -14,7 +14,13 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("health", help="Supabase / schema health check")
     sub.add_parser("prune", help="Delete saved jobs whose links have closed")
     sub.add_parser("dashboard", help="Build the static jobs dashboard site")
+    sub.add_parser("sponsors", help="Build config/visa_sponsors.csv from DOL PERM xlsx files")
     args, rest = parser.parse_known_args(argv)
+
+    if args.command == "sponsors":
+        from job_scout.orchestration.maintain import sponsors_main
+
+        return sponsors_main(rest)
 
     if args.command == "prune":
         from job_scout.orchestration.maintain import prune_main

@@ -57,8 +57,13 @@ def dashboard_main(argv: list[str] | None = None) -> int:
     try:
         repo = _repo(args.memory)
         min_score = int(load_scoring(settings).get("low_score_cutoff", 60))
+        from job_scout.adapters.registry import inactive_source_names
+
+        inactive = inactive_source_names()
         health = {"sources_failed": 0, "failed_sources": []}
         for row in repo.list_source_health():
+            if row.get("source") in inactive:
+                continue
             if row.get("consecutive_failures", 0) > 0:
                 health["sources_failed"] += 1
                 health["failed_sources"].append(row.get("source"))
@@ -68,3 +73,21 @@ def dashboard_main(argv: list[str] | None = None) -> int:
     except Exception:
         logger.exception("Dashboard build failed")
         return 1
+
+
+def sponsors_main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Build the US green-card sponsor list from DOL PERM data")
+    parser.add_argument("xlsx", nargs="+", type=Path, help="PERM_Disclosure_Data_*.xlsx downloaded from dol.gov")
+    args = parser.parse_args(argv)
+    settings = get_settings()
+    configure_logging(settings.job_scout_log_level)
+    from job_scout.services.sponsors import SPONSORS_FILE, build_sponsor_csv
+
+    out = settings.config_dir() / SPONSORS_FILE
+    try:
+        stats = build_sponsor_csv(args.xlsx, out)
+    except Exception:
+        logger.exception("Sponsor list build failed")
+        return 1
+    logger.info("Wrote %s: %s", out, stats)
+    return 0

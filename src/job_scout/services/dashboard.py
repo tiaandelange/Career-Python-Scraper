@@ -48,7 +48,18 @@ def visa_status(job: CanonicalJobRecord) -> str:
         return "green-card" if "green card" in notes else "sponsors"
     if job.mobility.visa_sponsorship is False:
         return "no-sponsor"
+    from job_scout.services.scoring import sponsor_history
+
+    if sponsor_history(job) is not None:
+        return "history"
     return "unknown"
+
+
+def _perm_count(job: CanonicalJobRecord) -> int:
+    from job_scout.services.scoring import sponsor_history
+
+    rec = sponsor_history(job)
+    return rec.engineering_certified if rec else 0
 
 
 def job_to_card(job: CanonicalJobRecord) -> dict[str, Any]:
@@ -63,6 +74,7 @@ def job_to_card(job: CanonicalJobRecord) -> dict[str, Any]:
         "category": job.fit_category.value if job.fit_category else "",
         "salary": salary_label(job).replace("Salary: ", ""),
         "visa": visa_status(job),
+        "perm": _perm_count(job),
         "firstSeen": job.first_seen_at.isoformat() if job.first_seen_at else None,
         "posted": job.date_posted.date().isoformat() if job.date_posted else None,
         "closing": job.closing_date.isoformat() if job.closing_date else None,
@@ -91,7 +103,7 @@ def build_dashboard(
         "open": len(cards),
         "new_7d": sum(1 for c in cards if (c["firstSeen"] or "") >= week_ago),
         "us": sum(1 for c in cards if c["region"] == "US"),
-        "sponsor": sum(1 for c in cards if c["visa"] in {"sponsors", "green-card"}),
+        "sponsor": sum(1 for c in cards if c["visa"] in {"sponsors", "green-card", "history"}),
     }
     meta = {"generated": now.isoformat(), "stats": stats, "health": health or {}}
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -146,7 +158,7 @@ select{padding:5px 8px;border-radius:8px;border:1px solid var(--line);background
 .tags{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
 .tag{font-size:12px;border-radius:6px;padding:2px 8px;background:var(--chip)}
 .tag.new{background:var(--blue-soft);color:var(--blue);font-weight:600}
-.tag.v-sponsors,.tag.v-green-card{background:var(--accent-soft);color:var(--accent);font-weight:600}
+.tag.v-sponsors,.tag.v-green-card,.tag.v-history{background:var(--accent-soft);color:var(--accent);font-weight:600}
 .tag.v-no-sponsor,.tag.v-citizens-only{background:var(--bad-soft);color:var(--bad)}
 .tag.closing{background:var(--warn-soft);color:var(--warn)}
 .excerpt{margin:0 0 8px;font-size:14px}
@@ -175,7 +187,7 @@ footer{margin-top:24px;font-size:12px;color:var(--muted)}
     <select id="visa" aria-label="Visa filter">
       <option value="all">Any</option>
       <option value="open">Hide "no sponsorship" / citizens-only</option>
-      <option value="sponsor">Sponsorship stated</option>
+      <option value="sponsor">Sponsors visas (stated or green-card history)</option>
     </select>
     <span class="lbl">Fit</span>
     <select id="fit" aria-label="Minimum fit">
@@ -209,7 +221,7 @@ const weekAgo = new Date(Date.now() - 7 * 864e5).toISOString();
 const isNew = j => (j.firstSeen || "") >= weekAgo;
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const fmtDate = s => s ? new Date(s).toLocaleDateString(undefined, {day:"numeric", month:"short"}) : "";
-const VISA = {"sponsors":"Sponsorship stated","green-card":"Green card / EB sponsorship","no-sponsor":"No sponsorship","citizens-only":"Citizens / US persons only","unknown":"Visa: not stated"};
+const VISA = {"sponsors":"Sponsorship stated","green-card":"Green card / EB sponsorship","history":"Green-card sponsor history","no-sponsor":"No sponsorship","citizens-only":"Citizens / US persons only","unknown":"Visa: not stated"};
 
 function chips(el, values, set) {
   for (const v of values) {
@@ -231,7 +243,7 @@ function filtered() {
     if (state.regions.size && !state.regions.has(j.region)) return false;
     if (state.modes.size && !state.modes.has(j.mode)) return false;
     if (state.visa === "open" && (j.visa === "no-sponsor" || j.visa === "citizens-only")) return false;
-    if (state.visa === "sponsor" && !(j.visa === "sponsors" || j.visa === "green-card")) return false;
+    if (state.visa === "sponsor" && !(j.visa === "sponsors" || j.visa === "green-card" || j.visa === "history")) return false;
     if (j.score < +state.fit) return false;
     if (state.onlyNew && !isNew(j)) return false;
     if (state.hideSeen && seen.has(j.id)) return false;
@@ -246,7 +258,7 @@ function card(j) {
   const tags = [];
   if (isNew(j)) tags.push('<span class="tag new">New</span>');
   tags.push(`<span class="tag">${esc(j.mode)}</span>`);
-  tags.push(`<span class="tag v-${j.visa}">${esc(VISA[j.visa])}</span>`);
+  tags.push(`<span class="tag v-${j.visa}" ${j.perm ? `title="${j.perm} engineering PERM certifications (US Dept. of Labor)"` : ""}>${esc(VISA[j.visa])}${j.perm ? ` (${j.perm})` : ""}</span>`);
   if (j.salary) tags.push(`<span class="tag">${esc(j.salary)}</span>`);
   if (j.closing) tags.push(`<span class="tag closing">Closes ${esc(fmtDate(j.closing))}</span>`);
   const why = j.reasons && j.reasons.length ? `<p class="why">${esc(j.reasons.join(" · "))}</p>` : "";
@@ -278,7 +290,7 @@ $("#list").addEventListener("click", e => {
 });
 
 const s = META.stats || {};
-$("#stats").innerHTML = [["Open jobs", s.open], ["New this week", s.new_7d], ["In the US", s.us], ["Sponsorship stated", s.sponsor]]
+$("#stats").innerHTML = [["Open jobs", s.open], ["New this week", s.new_7d], ["In the US", s.us], ["Visa sponsors", s.sponsor]]
   .map(([l, v]) => `<div class="stat"><b>${v ?? 0}</b><span>${l}</span></div>`).join("");
 $("#gen").textContent = `Updated ${new Date(META.generated).toLocaleString()} · closed links are removed automatically`;
 const h = META.health || {};

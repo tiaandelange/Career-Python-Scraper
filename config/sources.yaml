@@ -113,6 +113,14 @@ sources:
       - {name: Quaise Energy, slug: quaise}
       - {name: Solid Power, slug: solidpower}
       - {name: Our Next Energy, slug: onenergy}
+      # Second batch (verified 2026-11-19): data-centre, thermal storage, nuclear/fusion, robotics.
+      - {name: CoreWeave, slug: coreweave}
+      - {name: Submer, slug: submer}
+      - {name: Rondo Energy, slug: rondoenergy}
+      - {name: Valar Atomics, slug: valaratomics}
+      - {name: Thea Energy, slug: thea}
+      - {name: Formic, slug: formic}
+      - {name: Electra Aero, slug: electraaero}
     notes: Public boards API. Water/dams/pipeline boards plus verified US energy and manufacturing employers.
 
   lever:
@@ -135,6 +143,7 @@ sources:
       - {name: Charm Industrial, slug: charmindustrial}
       - {name: Bedrock Energy, slug: bedrockenergy}
       - {name: Sila Nanotechnologies, slug: sila}
+      - {name: Exowatt, slug: exowatt}
     notes: Public postings JSON. Water/utility consulting plus verified US energy employers.
 
   ashby:
@@ -156,6 +165,8 @@ sources:
       - {name: Helion Energy, slug: helion}
       - {name: Dandelion Energy, slug: dandelion}
       - {name: Heirloom Carbon, slug: heirloomcarbon}
+      - {name: Vantage Data Centers, slug: vantage}
+      - {name: Aligned Data Centers, slug: aligned}
     notes: Public job-board API (slugs verified live 2026-11-19).
 
   workday:
@@ -175,14 +186,16 @@ sources:
     max_jobs_per_employer: 30
     searches: [mechanical engineer, project engineer, water, project manager]
     employers:
-      # Water / infrastructure (pod + site taken from each employer's own careers links)
-      - {name: Xylem, tenant: xylem, pod: wd5, site: xylem-careers}
-      - {name: Mueller Water Products, tenant: muellerwaterproducts, pod: wd5, site: Mueller}
-      - {name: Badger Meter, tenant: badgermeter, pod: wd5, site: US_CareerSite}
-      - {name: HNTB, tenant: hntb, pod: wd5, site: HNTB_Careers}
-      - {name: Morrison Hershfield (Stantec), tenant: morrisonhershfield, pod: wd3, site: morrisonhershfieldcareers}
+      # Only Primoris (pod wd108) answers automated requests. The wd3/wd5 tenants below return
+      # 429 to every non-browser client (verified from home and from GitHub Actions on
+      # 2026-11-19), so they are disabled rather than worked around.
       - {name: Primoris, tenant: prim, pod: wd108, site: Primoris}
-      - {name: GE Vernova, tenant: gevernova, pod: wd5, site: Vernova_ExternalSite}
+      - {name: Xylem, tenant: xylem, pod: wd5, site: xylem-careers, enabled: false}
+      - {name: Mueller Water Products, tenant: muellerwaterproducts, pod: wd5, site: Mueller, enabled: false}
+      - {name: Badger Meter, tenant: badgermeter, pod: wd5, site: US_CareerSite, enabled: false}
+      - {name: HNTB, tenant: hntb, pod: wd5, site: HNTB_Careers, enabled: false}
+      - {name: Morrison Hershfield (Stantec), tenant: morrisonhershfield, pod: wd3, site: morrisonhershfieldcareers, enabled: false}
+      - {name: GE Vernova, tenant: gevernova, pod: wd5, site: Vernova_ExternalSite, enabled: false}
     notes: >
       Public Workday candidate-experience JSON (the endpoints the career site itself calls).
       Searches a few keywords per employer and pre-filters titles before detail calls because
@@ -282,6 +295,9 @@ sources:
 
   dpsa_circular:
     enabled: true
+    # Returns 403 to GitHub's cloud runners (works from a South African home connection).
+    # Skipped in CI so it is not reported as broken every day; saved jobs keep until closing.
+    skip_in_ci: true
     adapter: job_scout.adapters.regional.dpsa_circular:DpsaCircularAdapter
     source_type: html
     pipelines: [onsite, hybrid]
@@ -300,6 +316,9 @@ sources:
 
   dws_vacancies:
     enabled: true
+    # Returns 403 to GitHub's cloud runners (works from a South African home connection).
+    # Skipped in CI so it is not reported as broken every day; saved jobs keep until closing.
+    skip_in_ci: true
     adapter: job_scout.adapters.regional.dws_vacancies:DwsVacanciesAdapter
     source_type: html
     pipelines: [onsite, hybrid]

@@ -170,7 +170,12 @@ def _region(job: CanonicalJobRecord) -> str:
 
 
 def _sponsor_stated(job: CanonicalJobRecord) -> bool:
-    return job.mobility.visa_sponsorship is True
+    """Advert says it sponsors, or the employer has engineering green-card (PERM) history."""
+    if job.mobility.visa_sponsorship is True:
+        return True
+    from job_scout.services.scoring import sponsor_history
+
+    return sponsor_history(job) is not None
 
 
 def _tile(label: str, value: object, *, fg: str, bg: str, border: str) -> str:
@@ -196,7 +201,7 @@ def _top_rows(jobs: list[CanonicalJobRecord], limit: int) -> str:
                 f'<a href="{html.escape(url, quote=True)}" '
                 f'style="color:#0f6b4c;text-decoration:none;font-weight:bold">{title}</a>'
             )
-        visa = ' &middot; <span style="color:#0f6b4c">sponsorship stated</span>' if _sponsor_stated(job) else ""
+        visa = ' &middot; <span style="color:#0f6b4c">visa sponsor</span>' if _sponsor_stated(job) else ""
         score = job.fit_score if job.fit_score is not None else "-"
         where = html.escape(job.location_text or job.work_mode.value)
         rows.append(
@@ -231,7 +236,7 @@ def render_digest_html(
             _tile("New matches", len(new_jobs), fg="#0f766e", bg="#f0fdfa", border="#99f6e4"),
             _tile("Strong or better", strong_new, fg="#6d28d9", bg="#f5f3ff", border="#c4b5fd"),
             _tile("New in the US", us_new, fg="#1d4ed8", bg="#eff6ff", border="#bfdbfe"),
-            _tile("Sponsorship stated", sponsor_new, fg="#0f6b4c", bg="#f3faf6", border="#c5ddd2"),
+            _tile("Visa sponsors", sponsor_new, fg="#0f6b4c", bg="#f3faf6", border="#c5ddd2"),
         ]
     )
     row2 = "".join(
@@ -364,7 +369,15 @@ def build_and_maybe_send(
             health["pipeline_new"] = totals["jobs_new"]
     except Exception as exc:  # noqa: BLE001
         logger.warning("Could not load scrape totals for digest header: %s", exc)
+    from job_scout.adapters.registry import inactive_source_names
+
+    try:
+        inactive = inactive_source_names()
+    except Exception:  # noqa: BLE001
+        inactive = set()
     for row in repo.list_source_health():
+        if row.get("source") in inactive:
+            continue
         if row.get("consecutive_failures", 0) > 0 or row.get("status") == "failure":
             health["sources_failed"] += 1
             health["failed_sources"].append(row.get("source"))

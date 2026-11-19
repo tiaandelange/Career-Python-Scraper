@@ -118,6 +118,18 @@ One-time setup: **Settings -> Pages -> Source: GitHub Actions**, and run `supaba
 
 US employers come from Greenhouse / Lever / Ashby / Workday boards in `config/sources.yaml`. ITAR / defence employers are excluded (US persons only). Descriptions are scanned for H-1B / green-card / PERM / EB-2 / EB-3 sponsorship wording, "no sponsorship" wording, and ITAR "U.S. person" requirements; the dashboard's Visa filter uses these.
 
+**Green-card sponsor history (recommended, once a year).** Download the latest `PERM_Disclosure_Data_*.xlsx` from the [DOL performance data page](https://www.dol.gov/agencies/eta/foreign-labor/performance) in your browser (dol.gov blocks scripted downloads), then:
+
+```powershell
+pip install -e ".[data]"
+python -m job_scout sponsors "$HOME\Downloads\PERM_Disclosure_Data_FY2025.xlsx"
+git add config/visa_sponsors.csv; git commit -m "Update PERM sponsor list"; git push
+```
+
+US jobs at employers with engineering PERM certifications get a score boost, a "Green-card sponsor history (N)" tag on the dashboard and count toward "Visa sponsors" in the email.
+
+**Sites that block cloud servers.** DPSA and DWS answer 403 to GitHub's runners, so they carry `skip_in_ci: true` in `sources.yaml`: skipped on GitHub (not reported as failing), still run anywhere else. Six Workday tenants answer 429 to all automated clients and are disabled; only Primoris works.
+
 Add a Workday employer from its careers URL `https://{tenant}.{pod}.myworkdayjobs.com/{site}`:
 
 ```yaml

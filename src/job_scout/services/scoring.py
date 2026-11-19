@@ -11,6 +11,20 @@ from job_scout.models.job import CanonicalJobRecord, ScoreBreakdown
 from job_scout.utils.text import normalise_key
 
 
+def sponsor_history(job: CanonicalJobRecord):
+    """PERM sponsor record for a US job, unless the advert itself rules sponsorship out."""
+    from job_scout.services.sponsors import lookup
+
+    # Only US on-site/hybrid roles need a US visa; remote work from South Africa does not.
+    if (job.country_code or "").upper() != "US" or job.work_mode == WorkMode.REMOTE:
+        return None
+    notes = (job.mobility.work_authorisation_notes or "").lower()
+    if job.mobility.visa_sponsorship is False or job.mobility.citizenship_required or "u.s. person" in notes:
+        return None
+    rec = lookup(job.company)
+    return rec if rec and rec.engineering_certified > 0 else None
+
+
 def _hits(blob: str, phrases: list[str]) -> list[str]:
     found = []
     for phrase in phrases:
@@ -146,6 +160,17 @@ def score_job(
     if job.mobility.visa_sponsorship:
         breakdown.international_mobility += float((scoring.get("mobility_boost") or {}).get("visa_sponsorship", 8))
         reasons.append("Employer states visa sponsorship is available.")
+    sponsor = sponsor_history(job)
+    if sponsor is not None:
+        boosts = scoring.get("mobility_boost") or {}
+        strong = sponsor.engineering_certified >= 10
+        breakdown.international_mobility += float(
+            boosts.get("sponsor_history_strong", 8) if strong else boosts.get("sponsor_history", 5)
+        )
+        reasons.append(
+            f"{sponsor.employer} received {sponsor.engineering_certified} engineering green-card (PERM) "
+            "certifications in the latest US Department of Labor data."
+        )
     if job.mobility.relocation_assistance:
         breakdown.international_mobility += float((scoring.get("mobility_boost") or {}).get("relocation", 5))
         reasons.append("Relocation assistance is mentioned.")

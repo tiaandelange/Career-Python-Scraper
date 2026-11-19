@@ -32,6 +32,9 @@ dev = [
 browser = [
   "playwright>=1.45",
 ]
+data = [
+  "openpyxl>=3.1",
+]
 
 [project.scripts]
 job-scout-scrape = "job_scout.orchestration.run_scrapers:main"

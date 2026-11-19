@@ -171,6 +171,9 @@ work_mode_boost:
 
 mobility_boost:
   visa_sponsorship: 8
+  # Employer has engineering PERM (green card) certifications in config/visa_sponsors.csv.
+  sponsor_history: 5          # 1-9 engineering certifications
+  sponsor_history_strong: 8   # 10+
   relocation: 5
   globally_distributed: 3
 
