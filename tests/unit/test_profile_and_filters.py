@@ -20,21 +20,29 @@ def test_profile_contains_required_families():
     assert "DE" in profile["geographic"]["onsite_hybrid_countries"]
 
 
-def test_onsite_without_salary_rejected():
+def _strict(policy):
+    return {**policy, "rules": {**policy["rules"], "onsite_requires_published_salary": True, "hybrid_requires_published_salary": True}}
+
+
+def test_onsite_without_salary_allowed_and_flagged():
     policy = load_salary_policy()
     job = normalise_job(raw_job(salary_text=None, work_mode_hint="onsite"))
     job.salary.published = False
     decision = salary_decision(WorkMode.ONSITE, job.salary, policy)
-    assert decision.accepted is False
-    assert "onsite_salary_not_published" in decision.reasons[0]
+    assert decision.accepted is True
+    assert "onsite_salary_not_published_allowed" in decision.flags
+    # The switch still works if pay is ever required again.
+    strict = salary_decision(WorkMode.ONSITE, job.salary, _strict(policy))
+    assert strict.accepted is False
+    assert "onsite_salary_not_published" in strict.reasons[0]
 
 
-def test_hybrid_without_salary_rejected():
+def test_hybrid_without_salary_allowed_and_flagged():
     policy = load_salary_policy()
     job = normalise_job(raw_job(salary_text=None, work_mode_hint="hybrid", location_text="Cape Town"))
     job.salary.published = False
-    decision = salary_decision(WorkMode.HYBRID, job.salary, policy)
-    assert decision.accepted is False
+    assert salary_decision(WorkMode.HYBRID, job.salary, policy).accepted is True
+    assert salary_decision(WorkMode.HYBRID, job.salary, _strict(policy)).accepted is False
 
 
 def test_onsite_below_floor_rejected():

@@ -85,7 +85,7 @@ Follow [docs/ADDING_A_SOURCE.md](docs/ADDING_A_SOURCE.md) and the audit in [docs
 
 ## 9. How to change salary requirements
 
-Edit `config/salary_policy.yaml`. Floors are monthly. On-site and hybrid still require employer-published salary. Remote may omit salary but is rejected when a published figure is below the floor.
+Edit `config/salary_policy.yaml`. Floors are monthly. Jobs without a published salary are allowed in every work mode (flagged "Salary: Not published"); a job is rejected only when the employer publishes a salary below the floor. Set `onsite_requires_published_salary` / `hybrid_requires_published_salary` to `true` to require pay again. Estimates (Glassdoor, Adzuna predictions) are never treated as salary.
 
 ## 10. How to change target countries
 
@@ -139,7 +139,7 @@ python -m job_scout digest --send
 | --- | --- |
 | No jobs persisted | Supabase URL/key; migration applied; RLS still allows service role (it bypasses RLS). |
 | Zero jobs from one source | `source_health` row; consecutive failures; slug 404. Other sources still run. |
-| On-site empty | Most ATS boards omit salary. That is a hard reject, not a bug. Enable Adzuna or add employers that publish pay. |
+| On-site empty | Check `onsite_hybrid_countries` and the job-family keywords; missing salary no longer rejects jobs. |
 | Digest empty | Scores below Good; jobs already notified; scrape has not run. |
 | FX errors | Frankfurter outage → cached rate marked stale; no invented rates. |
 | Actions did not fire | Schedules use `timezone: Africa/Johannesburg`. Repo must be active; workflows live on default branch. |

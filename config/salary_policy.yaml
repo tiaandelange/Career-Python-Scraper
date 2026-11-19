@@ -1,5 +1,6 @@
 # Employer-published salary only. Never invent figures. Never treat Glassdoor
-# or similar estimates as published salary.
+# or similar estimates as published salary. Jobs without a published salary are allowed
+# in every work mode; only a published salary below the floor rejects a job.
 
 currency_floors_monthly:
   ZAR: 70000
@@ -26,8 +27,11 @@ default_international_floor:
 no_maximum: true
 
 rules:
-  onsite_requires_published_salary: true
-  hybrid_requires_published_salary: true
+  # Most employers (especially outside US pay-transparency states) do not publish pay, so
+  # requiring it hid most on-site/hybrid jobs. Missing pay is now flagged, not rejected.
+  # A published salary below the floor is still rejected.
+  onsite_requires_published_salary: false
+  hybrid_requires_published_salary: false
   remote_allows_missing_salary: true
   reject_known_salary_below_floor: true
   range_uses_lower_bound: true

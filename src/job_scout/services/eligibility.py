@@ -48,34 +48,38 @@ def salary_decision(
         (work_mode == WorkMode.ONSITE and rules.get("onsite_requires_published_salary", True))
         or (work_mode == WorkMode.HYBRID and rules.get("hybrid_requires_published_salary", True))
     )
+    # When pay is not required for this mode, ambiguous / missing pay is a flag, not a reject.
+    lenient = not requires_published
     if snapshot.estimated:
+        if lenient:
+            return FilterDecision(accepted=True, flags=["salary_estimate_ignored_not_published"])
         return FilterDecision(accepted=False, reasons=["salary_estimate_not_employer_published"])
     if requires_published and not snapshot.published:
         return FilterDecision(
             accepted=False,
             reasons=[f"{work_mode.value}_salary_not_published"],
         )
-    if work_mode == WorkMode.REMOTE and not snapshot.published:
+    if not snapshot.published and work_mode != WorkMode.UNKNOWN:
         return FilterDecision(
             accepted=True,
-            flags=["remote_salary_not_published_allowed"],
+            flags=[f"{work_mode.value}_salary_not_published_allowed"],
         )
     if snapshot.published:
         lower = lower_bound_monthly(snapshot)
         if lower is None:
             if snapshot.period == "hourly" and snapshot.hours_per_week is None:
-                if work_mode in {WorkMode.ONSITE, WorkMode.HYBRID}:
+                if not lenient:
                     return FilterDecision(
                         accepted=False,
                         reasons=["hourly_salary_hours_unknown_cannot_verify_floor"],
                     )
                 return FilterDecision(accepted=True, flags=["hourly_without_stated_hours"])
-            if work_mode in {WorkMode.ONSITE, WorkMode.HYBRID}:
+            if not lenient:
                 return FilterDecision(
                     accepted=False,
                     reasons=["salary_up_to_only_no_valid_lower_bound"],
                 )
-            return FilterDecision(accepted=True, flags=["remote_salary_max_only"])
+            return FilterDecision(accepted=True, flags=[f"{work_mode.value}_salary_max_only"])
         floor, floor_currency, stale = floor_for(snapshot, policy, fx)
         compare = lower
         notes = []
@@ -100,13 +104,13 @@ def salary_decision(
             notes.append("fx_rate_stale")
         if snapshot.currency and snapshot.currency.upper() != floor_currency:
             if fx is None:
-                if work_mode == WorkMode.REMOTE:
+                if lenient:
                     return FilterDecision(accepted=True, flags=["fx_unavailable_salary_not_converted"])
                 return FilterDecision(accepted=False, reasons=["fx_unavailable_cannot_compare_salary"])
             try:
                 compare, conv_stale = fx.convert(lower, snapshot.currency, floor_currency)
             except Exception:
-                if work_mode == WorkMode.REMOTE:
+                if lenient:
                     return FilterDecision(accepted=True, flags=["fx_unavailable_salary_not_converted"])
                 return FilterDecision(accepted=False, reasons=["fx_unavailable_cannot_compare_salary"])
             if conv_stale:
