@@ -81,6 +81,26 @@ def test_batch_merges_duplicate_fingerprint_and_keeps_cache():
     assert {row["source_job_id"] for row in sources} == {"1", "2"}
 
 
+def test_mark_notified_chunks_long_filters():
+    calls = []
+
+    class Q:
+        def update(self, payload):
+            return self
+
+        def in_(self, col, values):
+            calls.append(len(values))
+            return self
+
+        def execute(self):
+            return None
+
+    repo = _repo()
+    repo.client = type("C", (), {"table": lambda self, name: Q()})()
+    repo.mark_notified([f"{i:064x}" for i in range(256)] + ["0" * 64], utcnow())
+    assert calls == [100, 100, 56]  # 256 unique, duplicate dropped, no URL over the limit
+
+
 def test_flush_without_batch_is_noop():
     repo = _repo()
     assert repo.flush() == 0

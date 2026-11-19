@@ -564,7 +564,11 @@ class SupabaseJobRepository:
         payload: dict[str, Any] = {"last_notified_at": when.isoformat()}
         if "digest_pending_update" in self.jobs_columns():
             payload["digest_pending_update"] = False
-        self.client.table("jobs").update(payload).in_("canonical_fingerprint", fingerprints).execute()
+        # The filter travels in the URL; 400+ 64-char fingerprints exceed the server's URL
+        # limit (HTTP 400), so update in chunks.
+        unique = list(dict.fromkeys(fingerprints))
+        for i in range(0, len(unique), 100):
+            self.client.table("jobs").update(payload).in_("canonical_fingerprint", unique[i : i + 100]).execute()
 
     def record_scrape_run(self, payload: dict[str, Any]) -> None:
         allowed = {
