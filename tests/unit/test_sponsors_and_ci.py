@@ -18,7 +18,12 @@ def sponsor_csv(tmp_path, monkeypatch):
     (cfg / "visa_sponsors.csv").write_text(
         "employer_key,employer,engineering_certified,total_certified\n"
         "black and veatch,BLACK & VEATCH CORPORATION,14,20\n"
-        "fervo energy,Fervo Energy Company,3,3\n",
+        "fervo energy,Fervo Energy Company,3,3\n"
+        "jacobs engineering,Jacobs Engineering Group,90,100\n"
+        "jacobs project management,Jacobs Project Management Co,20,25\n"
+        "lucid,Lucid USA Inc,200,300\n"
+        "stanley black and decker,Stanley Black & Decker,40,50\n"
+        "aligned dental management services,Aligned Dental,2,2\n",
         encoding="utf-8",
     )
     real = settings_mod.get_settings()
@@ -46,8 +51,16 @@ def test_lookup_exact_prefix_and_miss(sponsor_csv):
     assert sponsors.lookup("Black & Veatch").engineering_certified == 14
     assert sponsors.lookup("Black & Veatch Holding Company").engineering_certified == 14
     assert sponsors.lookup("Fervo Energy").engineering_certified == 3
-    assert sponsors.lookup("Black") is None  # never match on a single word
+    assert sponsors.lookup("Black") is None  # generic first word never matches alone
     assert sponsors.lookup("Unknown Water Co") is None
+
+
+def test_lookup_sums_subsidiaries_and_avoids_false_merges(sponsor_csv):
+    jacobs = sponsors.lookup("Jacobs")
+    assert jacobs.engineering_certified == 110 and jacobs.employer == "Jacobs Engineering Group"
+    assert sponsors.lookup("Lucid Motors").engineering_certified == 200  # exact one-word employer
+    assert sponsors.lookup("Stanley Consultants") is None  # not Stanley Black & Decker
+    assert sponsors.lookup("Aligned Data Centers") is None  # not Aligned Dental
 
 
 def test_lookup_without_file_is_none(tmp_path, monkeypatch):

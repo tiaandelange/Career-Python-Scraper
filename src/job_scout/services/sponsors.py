@@ -93,24 +93,78 @@ def _load() -> dict[str, SponsorRecord]:
 
 def clear_cache() -> None:
     _load.cache_clear()
+    _sorted_keys.cache_clear()
+
+
+# First words too common to identify a company on their own ("Our Next Energy" must not
+# match "Our Lady Hospital"; "Black & Veatch" must not match "Black Construction").
+_GENERIC_FIRST_WORDS = {
+    "our", "new", "first", "american", "america", "national", "united", "general", "global",
+    "advanced", "applied", "pacific", "atlantic", "solid", "black", "blue", "green", "red", "white",
+    "north", "south", "east", "west", "northern", "southern", "eastern", "western", "central",
+    "energy", "power", "water", "data", "digital", "smart", "precision", "integrated", "international",
+    "commonwealth", "western", "midwest", "texas", "california", "florida", "york", "city", "state",
+    "us", "usa", "one", "all", "big", "great", "best", "true", "prime", "core", "next", "future",
+}
+_MIN_SINGLE_WORD = 4
+
+
+@lru_cache(maxsize=1)
+def _sorted_keys() -> list[str]:
+    return sorted(_load())
+
+
+def _prefixed(prefix: str) -> list[str]:
+    """Sponsor keys equal to `prefix` or starting with `prefix + ' '` (its subsidiaries)."""
+    import bisect
+
+    keys = _sorted_keys()
+    out = []
+    i = bisect.bisect_left(keys, prefix)
+    while i < len(keys) and keys[i].startswith(prefix):
+        if keys[i] == prefix or keys[i][len(prefix)] == " ":
+            out.append(keys[i])
+        i += 1
+    return out
 
 
 def lookup(company: str | None) -> SponsorRecord | None:
+    """Green-card sponsor record for an employer, summed over its filing entities.
+
+    "Jacobs" -> Jacobs Engineering Group + Jacobs Project Management + ...;
+    "Lucid Motors" -> "Lucid USA" (shortened until something matches). Shortening stops
+    before a lone generic word so unrelated companies never merge.
+    """
     key = employer_key(company)
     if not key:
         return None
     sponsors = _load()
     if not sponsors:
         return None
-    if key in sponsors:
-        return sponsors[key]
-    # "Black & Veatch Holding Company" -> "black and veatch holding": try shorter prefixes,
-    # but never below two words, so "Water" can never match "Water Corp".
     words = key.split()
-    for size in range(len(words) - 1, 1, -1):
-        hit = sponsors.get(" ".join(words[:size]))
-        if hit:
-            return hit
+    for size in range(len(words), 0, -1):
+        prefix = " ".join(words[:size])
+        if size == 1:
+            if prefix in _GENERIC_FIRST_WORDS or len(prefix) < 3:
+                break
+            if len(words) > 1:
+                # "Lucid Motors" -> "lucid" only if an employer is exactly "Lucid (USA, Inc.)";
+                # "Stanley Consultants" must never become "Stanley Black & Decker".
+                if len(prefix) < _MIN_SINGLE_WORD or prefix not in sponsors:
+                    break
+                matches = [prefix]
+            else:
+                matches = _prefixed(prefix)
+        else:
+            matches = _prefixed(prefix)
+        if matches:
+            recs = [sponsors[m] for m in matches]
+            best = max(recs, key=lambda r: r.engineering_certified)
+            return SponsorRecord(
+                employer=best.employer,
+                engineering_certified=sum(r.engineering_certified for r in recs),
+                total_certified=sum(r.total_certified for r in recs),
+            )
     return None
 
 
