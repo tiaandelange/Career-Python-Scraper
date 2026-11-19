@@ -113,6 +113,6 @@ class AdzunaAdapter(SourceAdapter):
             salary_period="annual" if has_salary else None,
             date_posted=parse_datetime(payload.get("created")),
             apply_url=payload.get("redirect_url"),
-            raw_payload={"country": payload.get("_country"), "salary_predicted": predicted},
+            raw_payload={"country": payload.get("_country"), "country_code": payload.get("_country"), "salary_predicted": predicted},
             source_preference=SourcePreference.AGGREGATOR,
         )

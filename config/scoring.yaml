@@ -17,6 +17,16 @@ categories:
   Possible: [60, 69]
   Low: [0, 59]
 
+# Applied after the other components: early applications get seen, stale adverts sink.
+# Jobs with a future closing date are left alone.
+freshness:
+  new_days: 7
+  new_boost: 3
+  old_days: 30
+  old_penalty: 4
+  very_old_days: 60
+  very_old_penalty: 10
+
 digest_minimum_category: Possible
 low_score_cutoff: 60
 

@@ -20,7 +20,11 @@ NO_SPONSOR_RE = (
     r"without (the need for )?(current or future )?(visa )?sponsorship|"
     r"not (eligible|available) for (visa )?sponsorship|no sponsorship"
 )
-GREEN_CARD_RE = r"green card|permanent residen|\bperm\b|\beb-?[23]\b"
+VISA_FIELD_RE = (
+    r"(?:visa|immigration|work authori[sz]ation)? ?sponsorship(?: is)? (?:available|offered|provided|eligible)"
+    r"\s*[:\-?]\s*(yes|no|y|n)\b"
+)
+GREEN_CARD_RE =r"green card|permanent residen|\bperm\b|\beb-?[23]\b"
 US_PERSON_RE = (
     r"\bitar\b|u\.?s\.? persons?\b.{0,80}(22 cfr|export|itar|ear\b)|"
     r"must (be|qualify as) a u\.?s\.? person|(export control|ear/itar).{0,120}u\.?s\.? person"
@@ -36,6 +40,12 @@ def extract_mobility(title: str, description: str, raw: RawJobRecord) -> Mobilit
     )
     notes: list[str] = []
 
+    # Structured fields such as "Visa Sponsorship Available: No" (Black & Veatch adverts) are
+    # the most reliable signal and must win over the free-text patterns below, which would
+    # otherwise read "sponsorship ... available" as a yes.
+    field = re.search(VISA_FIELD_RE, blob)
+    if flags.visa_sponsorship is None and field:
+        flags.visa_sponsorship = field.group(1).startswith("y")
     if flags.visa_sponsorship is None:
         # Negative statements first: "will not sponsor" contains "sponsor" too.
         if re.search(NO_SPONSOR_RE, blob):
@@ -44,6 +54,9 @@ def extract_mobility(title: str, description: str, raw: RawJobRecord) -> Mobilit
             flags.visa_sponsorship = True
             if re.search(GREEN_CARD_RE, blob):
                 notes.append("employment-based green card (EB-2/EB-3/PERM) sponsorship mentioned")
+    reloc_field = re.search(r"relocation (?:eligible|assistance|available|offered)\s*[:\-?]\s*(yes|no|y|n)\b", blob)
+    if flags.relocation_assistance is None and reloc_field:
+        flags.relocation_assistance = reloc_field.group(1).startswith("y")
     if flags.relocation_assistance is None:
         if re.search(r"relocation (assistance|package|support)|will relocate", blob):
             flags.relocation_assistance = True

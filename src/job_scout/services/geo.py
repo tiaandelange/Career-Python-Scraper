@@ -219,6 +219,12 @@ AU_STATES = {
 def country_from_text(text: str | None) -> str | None:
     if not text:
         return None
+    # "City, State, CC" (SuccessFactors / Workday style): the last part is an ISO country,
+    # so "Pune, MH, IN" is India, not Indiana.
+    parts = [p.strip() for p in text.split(",") if p.strip()]
+    if len(parts) >= 3 and re.fullmatch(r"[A-Za-z]{2}", parts[-1]):
+        code = parts[-1].upper()
+        return "GB" if code == "UK" else code
     key = normalise_key(text)
     for alias, code in sorted(COUNTRY_ALIASES.items(), key=lambda item: -len(item[0])):
         if re.search(rf"\b{re.escape(alias)}\b", key):
@@ -402,6 +408,12 @@ def geo_from_raw(raw: RawJobRecord, description: str) -> GeoSnapshot:
         raw.remote_countries,
         raw.timezone_restrictions,
     )
+    # A structured ISO country from the source beats parsing text: "Bangalore, in" and
+    # "Bogota, co" would otherwise read as Indiana and Colorado.
+    hinted = str((raw.raw_payload or {}).get("country_code") or "").strip().upper()
+    if re.fullmatch(r"[A-Z]{2}", hinted):
+        snapshot.country_code = "GB" if hinted == "UK" else hinted
+        snapshot.country_name = COUNTRY_NAMES.get(snapshot.country_code)
     if not snapshot.country_code:
         snapshot.country_code = country_from_text(raw.location_text)
         snapshot.country_name = COUNTRY_NAMES.get(snapshot.country_code or "")

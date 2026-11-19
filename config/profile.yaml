@@ -129,6 +129,14 @@ exclude_titles:
     - '\bcontrol systems?\b|\bmotion control\b'
     - '\bdata (platforms?|infrastructure)\b'
     - '\bpower delivery\b|\btransmission (line|lines|engineer)'
+    - '\binstrument(ation)?\s*(&|and)\s*controls?\b'
+  # Excluded even when the title also says "mechanical" or "civil" (academic posts need a PhD;
+  # interns/students are not the target level).
+  always:
+    - '\b(assistant|associate|full|adjunct|visiting|clinical)?\s*professor\b'
+    - '\blecturer\b|\bpostdoc|\bpost-doctoral|\bfaculty\b|\bdepartment (head|chair)\b'
+    - '\bintern\b|\binternship\b|\bco-op\b|\bstudent\b|\bgraduate\b|\bentry[- ]level\b|\bearly career\b|\bnew grad\b'
+    - '\bai (model )?(evaluator|trainer)\b'
   keep_if_title_has:
     - mechanical
     - civil
@@ -141,6 +149,33 @@ exclude_titles:
     - qaqc
     - inspector
     - inspection
+
+# Employers to drop whichever site lists them. Defence / ITAR employers hire "U.S. persons"
+# only, so a visa applicant cannot be hired; aggregators (Adzuna) still surface them and
+# their short snippets hide the export-control wording. Matched on the company name.
+exclude_employers:
+  - SpaceX
+  - Space Exploration Technologies
+  - Anduril
+  - Saronic
+  - Hermeus
+  - Relativity Space
+  - Lockheed Martin
+  - Northrop Grumman
+  - Raytheon
+  - RTX
+  - General Dynamics
+  - BAE Systems
+  - L3Harris
+  - Huntington Ingalls
+  - Leidos
+  - SAIC
+  - Booz Allen
+  - Sierra Nevada Corporation
+  - Blue Origin
+  - United Launch Alliance
+  - Textron
+  - DataAnnotation
 
 job_families:
   engineering:

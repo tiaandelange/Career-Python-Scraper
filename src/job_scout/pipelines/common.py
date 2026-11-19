@@ -32,14 +32,31 @@ _EXCLUDE_CACHE: dict[tuple, tuple[list[re.Pattern[str]], list[str]]] = {}
 def title_excluded(title: str, profile: dict[str, Any]) -> bool:
     """True for other-discipline titles (electrical, controls, software...) per profile.yaml."""
     spec = profile.get("exclude_titles") or {}
+    always_key = ("always", tuple(spec.get("always") or ()))
+    if always_key not in _EXCLUDE_CACHE:
+        _EXCLUDE_CACHE[always_key] = ([re.compile(p, re.I) for p in always_key[1]], [])
+    text = (title or "").lower()
+    if any(p.search(text) for p in _EXCLUDE_CACHE[always_key][0]):
+        return True
     key = (tuple(spec.get("patterns") or ()), tuple(spec.get("keep_if_title_has") or ()))
     if key not in _EXCLUDE_CACHE:
         _EXCLUDE_CACHE[key] = ([re.compile(p, re.I) for p in key[0]], [k.lower() for k in key[1]])
     patterns, keep = _EXCLUDE_CACHE[key]
-    text = (title or "").lower()
     if not any(p.search(text) for p in patterns):
         return False
     return not any(word in text for word in keep)
+
+
+def employer_excluded(company: str | None, profile: dict[str, Any]) -> bool:
+    """True for employers listed in profile.yaml `exclude_employers` (whole-word match)."""
+    name = normalise_key(company or "")
+    if not name:
+        return False
+    for blocked in profile.get("exclude_employers") or []:
+        key = normalise_key(blocked)
+        if key and re.search(rf"(^|\s){re.escape(key)}(\s|$)", name):
+            return True
+    return False
 
 
 def is_family_relevant(title: str, description: str, profile: dict[str, Any]) -> bool:
@@ -184,7 +201,9 @@ def run_pipeline(
             if expected_work_mode and normalised.work_mode == WorkMode.UNKNOWN:
                 stats.dropped_work_mode += 1
                 continue
-            if not is_family_relevant(normalised.title, normalised.description, profile):
+            if employer_excluded(normalised.company, profile) or not is_family_relevant(
+                normalised.title, normalised.description, profile
+            ):
                 stats.rejected += 1
                 continue
             stats.relevant += 1

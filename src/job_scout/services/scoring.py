@@ -11,6 +11,25 @@ from job_scout.models.job import CanonicalJobRecord, ScoreBreakdown
 from job_scout.utils.text import normalise_key
 
 
+def freshness_adjustment(job: CanonicalJobRecord, scoring: dict[str, Any]) -> tuple[int, str]:
+    """Small boost for new adverts, growing penalty for old ones (closing date resets the clock)."""
+    from job_scout.utils.dates import utcnow
+
+    cfg = scoring.get("freshness") or {}
+    if job.date_posted is None:
+        return 0, ""
+    if job.closing_date and job.closing_date >= utcnow().date():
+        return 0, ""  # still explicitly open
+    age = (utcnow() - job.date_posted).days
+    if age <= int(cfg.get("new_days", 7)):
+        return int(cfg.get("new_boost", 3)), f"Posted {max(age, 0)} day(s) ago: apply early."
+    if age > int(cfg.get("very_old_days", 60)):
+        return -int(cfg.get("very_old_penalty", 10)), f"Posted {age} days ago; may already be filled."
+    if age > int(cfg.get("old_days", 30)):
+        return -int(cfg.get("old_penalty", 4)), f"Posted {age} days ago."
+    return 0, ""
+
+
 def sponsor_history(job: CanonicalJobRecord):
     """PERM sponsor record for a US job, unless the advert itself rules sponsorship out."""
     from job_scout.services.sponsors import lookup
@@ -228,6 +247,11 @@ def score_job(
     )
     if any(token in title for token in core_titles) and breakdown.sector >= 4 and breakdown.penalties < 10:
         score = max(score, 78)
+    # Freshness after the core-title floor so stale adverts sink even for ideal titles.
+    adjust, note = freshness_adjustment(job, scoring)
+    if adjust:
+        score = int(max(0, min(100, score + adjust)))
+        (reasons if adjust > 0 else concerns).append(note)
     job.fit_score = score
     job.fit_category = category_for(score, scoring)
     job.score_breakdown = breakdown

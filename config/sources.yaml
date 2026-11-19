@@ -121,6 +121,9 @@ sources:
       - {name: Thea Energy, slug: thea}
       - {name: Formic, slug: formic}
       - {name: Electra Aero, slug: electraaero}
+      # US civil / water engineering consultancies (verified 2026-11-19)
+      - {name: Olsson, slug: olsson}
+      - {name: Burgess & Niple, slug: burgessniple}
     notes: Public boards API. Water/dams/pipeline boards plus verified US energy and manufacturing employers.
 
   lever:
@@ -183,8 +186,8 @@ sources:
     salary_often_available: true
     request_delay_seconds: 1.5
     max_pages: 1
-    max_jobs_per_employer: 30
-    searches: [mechanical engineer, project engineer, quality, civil engineer, water]
+    max_jobs_per_employer: 20
+    searches: [mechanical engineer, quality, civil engineer]
     employers:
       # Only Primoris (pod wd108) answers automated requests. The wd3/wd5 tenants below return
       # 429 to every non-browser client (verified from home and from GitHub Actions on
@@ -202,6 +205,91 @@ sources:
       Workday rate-limits per IP. Add employers as {tenant, pod, site} from their careers URL:
       https://{tenant}.{pod}.myworkdayjobs.com/{site}
 
+  smartrecruiters_sgs:
+    # Separate entry so SGS gets its own time budget and fetches in parallel with AECOM.
+    enabled: true
+    adapter: job_scout.adapters.ats.smartrecruiters:SmartRecruitersAdapter
+    source_type: ats
+    pipelines: [remote, hybrid, onsite]
+    regions: [US, ZA]
+    coverage: {remote: true, hybrid: true, onsite: true}
+    preference: employer_ats
+    free: true
+    auth_required: false
+    javascript_required: false
+    salary_often_available: true
+    request_delay_seconds: 0.5
+    employers:
+      # Global inspection / testing / certification: 4,500+ postings, so search by keyword
+      # and country instead of paging the whole board.
+      - name: SGS
+        slug: sgs
+        queries: [inspector, quality, welding, mechanical]
+        countries: [us, za]
+        max_pages: 1
+        max_jobs: 60
+    notes: SGS QA/QC and inspection roles (verified 2026-11-19).
+
+  successfactors:
+    enabled: true
+    adapter: job_scout.adapters.ats.successfactors_rss:SuccessFactorsRssAdapter
+    source_type: ats
+    pipelines: [remote, hybrid, onsite]
+    regions: [global, US, ZA, AU]
+    coverage: {remote: true, hybrid: true, onsite: true}
+    preference: employer_ats
+    free: true
+    auth_required: false
+    javascript_required: false
+    salary_often_available: false
+    searches: [mechanical, quality, inspector, civil, piping, water]
+    sites:
+      - {name: Black & Veatch, slug: blackveatch, host: careers.bv.com}
+      - {name: Hatch, slug: hatch, host: jobs.hatch.com}
+      - {name: Sasol, slug: sasol, host: jobs.sasol.com}
+    notes: >
+      SAP SuccessFactors career-site RSS (/services/rss/job/?keywords=). Verified 2026-11-19 on
+      Black & Veatch, Hatch and Sasol. Most other SuccessFactors sites have the feed disabled.
+
+  oracle_cx:
+    enabled: true
+    adapter: job_scout.adapters.ats.oracle_cx:OracleCxAdapter
+    source_type: ats
+    pipelines: [remote, hybrid, onsite]
+    regions: [global, US, AU]
+    coverage: {remote: true, hybrid: true, onsite: true}
+    preference: employer_ats
+    free: true
+    auth_required: false
+    javascript_required: false
+    salary_often_available: false
+    max_pages: 1
+    searches: [mechanical, quality, civil, water, inspector]
+    employers:
+      - {name: GHD, slug: ghd, host: ejov.fa.ca2.oraclecloud.com, site: CX, countries: [US, ZA, AU, GB, IE, NZ], max_jobs: 60}
+    notes: >
+      Oracle Recruiting Cloud public JSON (the career site's own endpoints). Add an employer
+      from its careers URL: https://{host}/hcmUI/CandidateExperience/en/sites/{site}/...
+
+  ym_careers:
+    enabled: true
+    adapter: job_scout.adapters.regional.ym_careers:YmCareersAdapter
+    source_type: rss
+    pipelines: [remote, hybrid, onsite]
+    regions: [US]
+    coverage: {remote: true, hybrid: true, onsite: true}
+    preference: specialist_board
+    free: true
+    auth_required: false
+    javascript_required: false
+    salary_often_available: false
+    searches: [mechanical engineer, civil engineer, quality engineer, inspector, water, project engineer]
+    boards:
+      - {slug: nspe, host: careers.nspe.org}
+    notes: >
+      Association career centres on YM Careers. NSPE's RSS is open; AWWA, ASCE, ASQ, ASME and
+      ASHRAE return 403 to automated clients and are deliberately not used.
+
   smartrecruiters:
     enabled: true
     adapter: job_scout.adapters.ats.smartrecruiters:SmartRecruitersAdapter
@@ -215,6 +303,7 @@ sources:
     javascript_required: false
     salary_often_available: false
     max_pages: 2
+    max_jobs_per_source: 400
     employers:
       - {name: AECOM, slug: AECOM2}
       - {name: Ingerop, slug: Ingerop}

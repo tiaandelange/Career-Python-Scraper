@@ -46,9 +46,10 @@ class SmartRecruitersAdapter(SourceAdapter):
         client = HttpClient(allowed_hosts={"api.smartrecruiters.com", "jobs.smartrecruiters.com"})
         max_pages = int(self.config.get("max_pages", 3))
         max_jobs = int(self.config.get("max_jobs_per_source", 250))
-        max_per_employer = int(self.config.get("max_jobs_per_employer", max_jobs))
+        default_per_employer = int(self.config.get("max_jobs_per_employer", max_jobs))
+        delay = self.config.get("request_delay_seconds", 1.0)
         yielded = 0
-        # Large boards (AECOM) list hundreds of unrelated roles; each detail call costs ~1s.
+        # Large boards (AECOM, SGS) list hundreds of unrelated roles; each detail call costs ~1s.
         # Only fetch details for titles that plausibly match a target job family.
         title_ok = _title_filter() if self.config.get("title_prefilter", True) else (lambda _t: True)
         try:
@@ -58,60 +59,64 @@ class SmartRecruitersAdapter(SourceAdapter):
                 if yielded >= max_jobs:
                     break
                 slug = employer["slug"]
+                max_per_employer = int(employer.get("max_jobs", default_per_employer))
                 employer_yielded = 0
-                offset = 0
-                for _ in range(max_pages):
-                    if yielded >= max_jobs or employer_yielded >= max_per_employer:
-                        break
-                    url = f"https://api.smartrecruiters.com/v1/companies/{slug}/postings"
-                    try:
-                        payload = client.get_json(
-                            url,
-                            params={"limit": 100, "offset": offset},
-                            delay=self.config.get("request_delay_seconds", 1.0),
-                        )
-                    except Exception as exc:  # noqa: BLE001
-                        logger.warning("SmartRecruiters list failed for slug=%s: %s", slug, type(exc).__name__)
-                        break
-                    jobs = payload.get("content") or payload.get("jobs") or []
-                    if not jobs:
-                        break
-                    for item in jobs:
+                seen_ids: set[str] = set()
+                # Optional keyword searches / country filters for huge boards (SGS has 4,500+).
+                queries = employer.get("queries") or [None]
+                countries = employer.get("countries") or [None]
+                searches = [
+                    {k: v for k, v in (("q", q), ("country", c)) if v} for q in queries for c in countries
+                ]
+                for extra in searches:
+                    offset = 0
+                    for _ in range(int(employer.get("max_pages", max_pages))):
                         if yielded >= max_jobs or employer_yielded >= max_per_employer:
                             break
-                        if not title_ok(str(item.get("name") or item.get("title") or "")):
-                            continue
-                        detail = item
-                        job_id = item.get("id") or item.get("uuid")
-                        if job_id and not (item.get("jobAd") or item.get("description")):
-                            detail_url = f"https://api.smartrecruiters.com/v1/companies/{slug}/postings/{job_id}"
-                            try:
-                                detail = client.get_json(
-                                    detail_url,
-                                    delay=self.config.get("request_delay_seconds", 1.0),
-                                )
-                                if isinstance(detail, dict):
-                                    detail = {**item, **detail}
-                            except Exception as exc:  # noqa: BLE001
-                                logger.warning(
-                                    "SmartRecruiters detail failed slug=%s id=%s: %s",
-                                    slug,
-                                    job_id,
-                                    type(exc).__name__,
-                                )
-                                detail = item
-                        detail["_company"] = employer.get("name") or slug
-                        detail["_slug"] = slug
+                        url = f"https://api.smartrecruiters.com/v1/companies/{slug}/postings"
                         try:
-                            yield self.parse_job(detail)
-                            yielded += 1
-                            employer_yielded += 1
+                            payload = client.get_json(
+                                url, params={"limit": 100, "offset": offset, **extra}, delay=delay
+                            )
                         except Exception as exc:  # noqa: BLE001
-                            logger.warning("SmartRecruiters parse failed slug=%s: %s", slug, type(exc).__name__)
-                            continue
-                    offset += 100
-                    if len(jobs) < 100:
-                        break
+                            logger.warning("SmartRecruiters list failed for slug=%s: %s", slug, type(exc).__name__)
+                            break
+                        jobs = payload.get("content") or payload.get("jobs") or []
+                        if not jobs:
+                            break
+                        for item in jobs:
+                            if yielded >= max_jobs or employer_yielded >= max_per_employer:
+                                break
+                            job_id = str(item.get("id") or item.get("uuid") or "")
+                            if job_id and job_id in seen_ids:
+                                continue
+                            if not title_ok(str(item.get("name") or item.get("title") or "")):
+                                continue
+                            seen_ids.add(job_id)
+                            detail = item
+                            if job_id and not (item.get("jobAd") or item.get("description")):
+                                detail_url = f"https://api.smartrecruiters.com/v1/companies/{slug}/postings/{job_id}"
+                                try:
+                                    detail = client.get_json(detail_url, delay=delay)
+                                    if isinstance(detail, dict):
+                                        detail = {**item, **detail}
+                                except Exception as exc:  # noqa: BLE001
+                                    logger.warning(
+                                        "SmartRecruiters detail failed slug=%s id=%s: %s", slug, job_id, type(exc).__name__
+                                    )
+                                    detail = item
+                            detail["_company"] = employer.get("name") or slug
+                            detail["_slug"] = slug
+                            try:
+                                yield self.parse_job(detail)
+                                yielded += 1
+                                employer_yielded += 1
+                            except Exception as exc:  # noqa: BLE001
+                                logger.warning("SmartRecruiters parse failed slug=%s: %s", slug, type(exc).__name__)
+                                continue
+                        offset += 100
+                        if len(jobs) < 100:
+                            break
         finally:
             client.close()
 
@@ -149,6 +154,7 @@ class SmartRecruitersAdapter(SourceAdapter):
                 if isinstance(payload.get("department"), dict)
                 else payload.get("department"),
                 "api_ref": payload.get("ref"),
+                "country_code": (loc.get("countryCode") or loc.get("country") or ""),
             },
             source_preference=SourcePreference.EMPLOYER_ATS,
         )

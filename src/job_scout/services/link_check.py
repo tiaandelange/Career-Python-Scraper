@@ -162,10 +162,10 @@ def prune_closed_jobs(repo, *, dry_run: bool = False, stale_days: int = 7) -> Pr
     # Jobs saved before a profile change (e.g. electrical roles now excluded) are removed
     # here; the scrape no longer accepts them, so they will not come back.
     from job_scout.config.settings import load_profile
-    from job_scout.pipelines.common import title_excluded
+    from job_scout.pipelines.common import employer_excluded, title_excluded
 
     profile = load_profile()
-    off_profile = [j for j in jobs if title_excluded(j.title, profile)]
+    off_profile = [j for j in jobs if title_excluded(j.title, profile) or employer_excluded(j.company, profile)]
     if off_profile:
         logger.info("Removing %s saved jobs outside the target disciplines", len(off_profile))
         if not dry_run:

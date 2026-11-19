@@ -84,6 +84,23 @@ def job_to_card(job: CanonicalJobRecord) -> dict[str, Any]:
     }
 
 
+def group_locations(cards: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """One card per (title, company): the same role advertised in five cities is one job to apply for."""
+    groups: dict[tuple[str, str], dict[str, Any]] = {}
+    for card in sorted(cards, key=lambda c: -c["score"]):
+        key = (" ".join(card["title"].lower().split()), card["company"].lower().strip())
+        best = groups.get(key)
+        if best is None:
+            groups[key] = {**card, "otherLocations": []}
+            continue
+        loc = card["location"]
+        if loc and loc != best["location"] and loc not in best["otherLocations"]:
+            best["otherLocations"].append(loc)
+        if (card["firstSeen"] or "") < (best["firstSeen"] or "~"):
+            best["firstSeen"] = card["firstSeen"]
+    return list(groups.values())
+
+
 def build_dashboard(
     jobs: list[CanonicalJobRecord],
     out_dir: Path,
@@ -96,6 +113,7 @@ def build_dashboard(
         for job in jobs
         if job.active and not job.rejected and job.fit_score is not None and job.fit_score >= min_score
     ]
+    cards = group_locations(cards)
     cards.sort(key=lambda c: (-c["score"], c["title"]))
     now = utcnow()
     week_ago = (now - timedelta(days=7)).isoformat()
@@ -162,6 +180,7 @@ select{padding:5px 8px;border-radius:8px;border:1px solid var(--line);background
 .tag.v-no-sponsor,.tag.v-citizens-only{background:var(--bad-soft);color:var(--bad)}
 .tag.closing{background:var(--warn-soft);color:var(--warn)}
 .excerpt{margin:0 0 8px;font-size:14px}
+.more{border-bottom:1px dotted var(--muted);cursor:help}
 .why{margin:0 0 10px;font-size:13px;color:var(--muted)}
 .actions{display:flex;gap:8px;flex-wrap:wrap}
 .btn{display:inline-block;border-radius:8px;padding:7px 12px;font-size:13px;font-weight:600;text-decoration:none;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer;font-family:inherit}
@@ -194,7 +213,7 @@ footer{margin-top:24px;font-size:12px;color:var(--muted)}
       <option value="0">All</option><option value="60">Good+</option><option value="75">Strong+</option><option value="85">Exceptional</option>
     </select>
     <span class="lbl">Sort</span>
-    <select id="sort" aria-label="Sort"><option value="score">Best fit</option><option value="new">Newest</option><option value="closing">Closing soon</option></select>
+    <select id="sort" aria-label="Sort"><option value="score">Best fit</option><option value="new">Newest</option><option value="posted">Recently posted</option><option value="closing">Closing soon</option></select>
     <button class="chip" id="onlyNew" aria-pressed="false">New this week</button>
     <button class="chip" id="hideSeen" aria-pressed="false">Hide seen</button>
   </div>
@@ -239,7 +258,7 @@ function toggle(btn, key, persist) {
 function filtered() {
   const q = state.q.trim().toLowerCase();
   let out = JOBS.filter(j => {
-    if (q && !(`${j.title} ${j.company} ${j.location}`.toLowerCase().includes(q))) return false;
+    if (q && !(`${j.title} ${j.company} ${j.location} ${(j.otherLocations || []).join(" ")}`.toLowerCase().includes(q))) return false;
     if (state.regions.size && !state.regions.has(j.region)) return false;
     if (state.modes.size && !state.modes.has(j.mode)) return false;
     if (state.visa === "open" && (j.visa === "no-sponsor" || j.visa === "citizens-only")) return false;
@@ -250,6 +269,7 @@ function filtered() {
     return true;
   });
   if (state.sort === "new") out.sort((a, b) => (b.firstSeen || "").localeCompare(a.firstSeen || ""));
+  else if (state.sort === "posted") out.sort((a, b) => (b.posted || "").localeCompare(a.posted || ""));
   else if (state.sort === "closing") out.sort((a, b) => (a.closing || "9999").localeCompare(b.closing || "9999"));
   return out;
 }
@@ -266,7 +286,7 @@ function card(j) {
   return `<article class="card${isSeen ? " seen" : ""}" data-id="${esc(j.id)}">
     <div class="top"><h2><a href="${esc(j.url)}" target="_blank" rel="noopener" data-open>${esc(j.title)}</a></h2>
     <span class="score" title="${esc(j.category)}">${j.score}</span></div>
-    <div class="meta">${esc(j.company)} · ${esc(j.location || j.region)} · first seen ${esc(fmtDate(j.firstSeen))}</div>
+    <div class="meta">${esc(j.company)} · ${esc(j.location || j.region)}${(j.otherLocations || []).length ? ` <span class="more" title="${esc(j.otherLocations.join(" · "))}">+${j.otherLocations.length} more location${j.otherLocations.length > 1 ? "s" : ""}</span>` : ""} · first seen ${esc(fmtDate(j.firstSeen))}${j.posted ? ` · posted ${esc(fmtDate(j.posted))}` : ""}</div>
     <div class="tags">${tags.join("")}</div>
     ${j.excerpt ? `<p class="excerpt">${esc(j.excerpt)}</p>` : ""}${why}
     <div class="actions"><a class="btn primary" href="${esc(j.url)}" target="_blank" rel="noopener" data-open>Open job</a>
