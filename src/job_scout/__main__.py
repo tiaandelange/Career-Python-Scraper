@@ -12,7 +12,18 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("scrape", help="Run enabled job pipelines")
     sub.add_parser("digest", help="Build and optionally send the morning digest")
     sub.add_parser("health", help="Supabase / schema health check")
+    sub.add_parser("prune", help="Delete saved jobs whose links have closed")
+    sub.add_parser("dashboard", help="Build the static jobs dashboard site")
     args, rest = parser.parse_known_args(argv)
+
+    if args.command == "prune":
+        from job_scout.orchestration.maintain import prune_main
+
+        return prune_main(rest)
+    if args.command == "dashboard":
+        from job_scout.orchestration.maintain import dashboard_main
+
+        return dashboard_main(rest)
 
     if args.command == "scrape":
         from job_scout.orchestration.run_scrapers import main as scrape_main

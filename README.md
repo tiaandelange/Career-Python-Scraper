@@ -1,6 +1,10 @@
 # Job Scout
 
-Unattended global job discovery for a mechanical / water-infrastructure engineer. Three pipelines (remote, hybrid, on-site) run on GitHub Actions, persist to Supabase, and send one HTML email at 08:00 Africa/Johannesburg.
+Unattended global job discovery for a mechanical / water-infrastructure engineer. Three pipelines (remote, hybrid, on-site) run on GitHub Actions, persist to Supabase, publish a jobs dashboard to GitHub Pages, and send one short summary email at 08:00 Africa/Johannesburg.
+
+**Dashboard:** `https://<owner>.github.io/<repo>/` - every open match with search, region / mode / visa / fit filters and a per-browser "seen" marker. Closed links are deleted before each rebuild.
+
+**Each scrape run (~3-5 min):** fetch every source once, in parallel, each with a 3-minute budget -> score and save -> `prune` closed jobs -> rebuild and deploy the dashboard.
 
 The desktop does not need to be on.
 
@@ -100,6 +104,26 @@ python -m job_scout scrape --pipeline remote --memory
 
 GitHub: Actions → scrape → Run workflow.
 
+## 12b. Dashboard and closed-job cleanup
+
+```powershell
+python -m job_scout prune --dry-run   # list jobs whose links have closed, delete nothing
+python -m job_scout prune             # delete them (404/410, "no longer accepting", past closing date, unseen 7+ days)
+python -m job_scout dashboard --out site
+```
+
+One-time setup: **Settings -> Pages -> Source: GitHub Actions**, and run `supabase/migrations/0004_closed_jobs.sql` so deleted jobs are not re-added by stale listings.
+
+## 12c. US employers and visa signals
+
+US employers come from Greenhouse / Lever / Ashby / Workday boards in `config/sources.yaml`. ITAR / defence employers are excluded (US persons only). Descriptions are scanned for H-1B / green-card / PERM / EB-2 / EB-3 sponsorship wording, "no sponsorship" wording, and ITAR "U.S. person" requirements; the dashboard's Visa filter uses these.
+
+Add a Workday employer from its careers URL `https://{tenant}.{pod}.myworkdayjobs.com/{site}`:
+
+```yaml
+- {name: Employer, tenant: tenant, pod: wd5, site: SiteName}
+```
+
 ## 13. How to manually send a digest
 
 ```powershell
@@ -130,11 +154,16 @@ Default stack is intended to stay inside free tiers:
 
 Things that **could** cost money if you turn them on: exceeding GitHub Actions minutes on a paid plan, a paid Supabase plan, Resend beyond the free monthly quota, Adzuna overage if you leave the free developer quota, Playwright on Actions (not installed). OpenAI, paid proxies, CAPTCHA solvers and paid job APIs are **not** used.
 
+## 16. Forking for another niche
+
+Want the same engine for a different profile (e.g. remote part-time analyst)? See
+[docs/FORK_ANALYST_SCOUT.md](docs/FORK_ANALYST_SCOUT.md) — paste that file into Claude as a build brief.
+
 ## Schedules (Africa/Johannesburg)
 
 | Workflow | When |
 | --- | --- |
-| scrape | 10:00, 14:00, 22:00 |
+| scrape (+ prune + dashboard deploy) | 10:00, 14:00, 22:00 |
 | digest | 08:00 |
 | health | 06:30 daily fallback |
 

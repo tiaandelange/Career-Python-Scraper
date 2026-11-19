@@ -6,11 +6,12 @@ from job_scout.services.database import JobRepository
 from job_scout.services.fx import FxService
 
 
-def run_hybrid_pipeline(repo: JobRepository, fx: FxService | None = None) -> PipelineStats:
+def run_hybrid_pipeline(repo: JobRepository, fx: FxService | None = None, prefetched: dict | None = None) -> PipelineStats:
     return run_pipeline(
         pipeline=PipelineName.HYBRID,
         adapters=iter_adapters(pipeline="hybrid"),
         repo=repo,
         fx=fx,
         expected_work_mode=WorkMode.HYBRID,
+        prefetched=prefetched,
     )

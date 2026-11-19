@@ -15,6 +15,17 @@ from job_scout.utils.text import strip_html
 logger = logging.getLogger(__name__)
 
 
+def _title_filter():
+    from job_scout.config.settings import load_profile
+    from job_scout.pipelines.common import is_family_relevant
+
+    try:
+        profile = load_profile()
+    except Exception:  # noqa: BLE001
+        return lambda _title: True
+    return lambda title: is_family_relevant(title, "", profile)
+
+
 def _public_job_url(payload: dict[str, Any], slug: str) -> str:
     """Prefer human-facing board URLs; never use the API `ref` as the apply link."""
     for key in ("postingUrl", "applyUrl", "publicUrl"):
@@ -37,6 +48,9 @@ class SmartRecruitersAdapter(SourceAdapter):
         max_jobs = int(self.config.get("max_jobs_per_source", 250))
         max_per_employer = int(self.config.get("max_jobs_per_employer", max_jobs))
         yielded = 0
+        # Large boards (AECOM) list hundreds of unrelated roles; each detail call costs ~1s.
+        # Only fetch details for titles that plausibly match a target job family.
+        title_ok = _title_filter() if self.config.get("title_prefilter", True) else (lambda _t: True)
         try:
             for employer in self.config.get("employers") or []:
                 if employer.get("enabled") is False or not employer.get("slug"):
@@ -65,6 +79,8 @@ class SmartRecruitersAdapter(SourceAdapter):
                     for item in jobs:
                         if yielded >= max_jobs or employer_yielded >= max_per_employer:
                             break
+                        if not title_ok(str(item.get("name") or item.get("title") or "")):
+                            continue
                         detail = item
                         job_id = item.get("id") or item.get("uuid")
                         if job_id and not (item.get("jobAd") or item.get("description")):

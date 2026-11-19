@@ -98,7 +98,22 @@ sources:
     employers:
       - {name: MacKay / Engineering Analytics, slug: mackaysposito}
       - {name: BGE Inc, slug: bgeinc}
-    notes: Public boards API. Verified water/dams/pipeline boards only.
+      # US energy / cleantech / manufacturing employers hiring mechanical & project engineers
+      # (slugs verified live 2026-11-19). ITAR/defence boards (SpaceX, Anduril, Relativity)
+      # are deliberately excluded: they require US persons and cannot sponsor visas.
+      - {name: Fervo Energy, slug: fervoenergy}
+      - {name: Redwood Materials, slug: redwoodmaterials}
+      - {name: Zipline, slug: flyzipline}
+      - {name: Xometry, slug: xometry}
+      - {name: Kairos Power, slug: kairospower}
+      - {name: Oklo, slug: oklo}
+      - {name: Antora Energy, slug: antora}
+      - {name: Lucid Motors, slug: lucidmotors}
+      - {name: Pacific Fusion, slug: pacificfusion}
+      - {name: Quaise Energy, slug: quaise}
+      - {name: Solid Power, slug: solidpower}
+      - {name: Our Next Energy, slug: onenergy}
+    notes: Public boards API. Water/dams/pipeline boards plus verified US energy and manufacturing employers.
 
   lever:
     enabled: true
@@ -115,10 +130,15 @@ sources:
     employers:
       - {name: Woodard & Curran, slug: woodardcurran}
       - {name: Stanley Consultants, slug: stanleygroup}
-    notes: Public postings JSON. Verified water/utility consulting boards only.
+      - {name: Black & Veatch, slug: bv}
+      - {name: Commonwealth Fusion Systems, slug: cfsenergy}
+      - {name: Charm Industrial, slug: charmindustrial}
+      - {name: Bedrock Energy, slug: bedrockenergy}
+      - {name: Sila Nanotechnologies, slug: sila}
+    notes: Public postings JSON. Water/utility consulting plus verified US energy employers.
 
   ashby:
-    enabled: false
+    enabled: true
     adapter: job_scout.adapters.ats.ashby:AshbyAdapter
     source_type: ats
     pipelines: [remote, hybrid, onsite]
@@ -129,8 +149,45 @@ sources:
     auth_required: false
     javascript_required: false
     salary_often_available: true
-    employers: []
-    notes: Disabled until verified employer slugs are added.
+    employers:
+      - {name: Hatch, slug: hatch}
+      - {name: Twelve, slug: twelve}
+      - {name: Crusoe, slug: crusoe}
+      - {name: Helion Energy, slug: helion}
+      - {name: Dandelion Energy, slug: dandelion}
+      - {name: Heirloom Carbon, slug: heirloomcarbon}
+    notes: Public job-board API (slugs verified live 2026-11-19).
+
+  workday:
+    enabled: true
+    adapter: job_scout.adapters.ats.workday:WorkdayAdapter
+    source_type: ats
+    pipelines: [remote, hybrid, onsite]
+    regions: [US, global]
+    coverage: {remote: true, hybrid: true, onsite: true}
+    preference: employer_ats
+    free: true
+    auth_required: false
+    javascript_required: false
+    salary_often_available: true
+    request_delay_seconds: 1.5
+    max_pages: 1
+    max_jobs_per_employer: 30
+    searches: [mechanical engineer, project engineer, water, project manager]
+    employers:
+      # Water / infrastructure (pod + site taken from each employer's own careers links)
+      - {name: Xylem, tenant: xylem, pod: wd5, site: xylem-careers}
+      - {name: Mueller Water Products, tenant: muellerwaterproducts, pod: wd5, site: Mueller}
+      - {name: Badger Meter, tenant: badgermeter, pod: wd5, site: US_CareerSite}
+      - {name: HNTB, tenant: hntb, pod: wd5, site: HNTB_Careers}
+      - {name: Morrison Hershfield (Stantec), tenant: morrisonhershfield, pod: wd3, site: morrisonhershfieldcareers}
+      - {name: Primoris, tenant: prim, pod: wd108, site: Primoris}
+      - {name: GE Vernova, tenant: gevernova, pod: wd5, site: Vernova_ExternalSite}
+    notes: >
+      Public Workday candidate-experience JSON (the endpoints the career site itself calls).
+      Searches a few keywords per employer and pre-filters titles before detail calls because
+      Workday rate-limits per IP. Add employers as {tenant, pod, site} from their careers URL:
+      https://{tenant}.{pod}.myworkdayjobs.com/{site}
 
   smartrecruiters:
     enabled: true
@@ -392,5 +449,3 @@ disabled_not_implemented:
     reason: Published jobfeed URL returns SPA HTML, not RSS/XML.
   aps_jobs:
     reason: Salesforce/JS career site; would need browser automation.
-  workday:
-    reason: Undocumented POST career-site endpoints; not treated as an official public API.

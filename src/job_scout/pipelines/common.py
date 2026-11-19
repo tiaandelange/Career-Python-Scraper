@@ -111,6 +111,7 @@ def run_pipeline(
     repo: JobRepository,
     fx: FxService | None = None,
     expected_work_mode: WorkMode | None = None,
+    prefetched: dict[str, Any] | None = None,
 ) -> PipelineStats:
     profile = load_profile()
     policy = load_salary_policy()
@@ -125,8 +126,14 @@ def run_pipeline(
         source = adapter.source_name
         seen = 0
         parse_errors = 0
+        cached = (prefetched or {}).get(str(adapter.config.get("name") or source))
         try:
-            jobs = list(adapter.fetch_jobs())
+            if cached is not None:
+                if cached.error is not None:
+                    raise cached.error
+                jobs = cached.jobs
+            else:
+                jobs = list(adapter.fetch_jobs())
         except Exception as exc:  # noqa: BLE001
             stats.sources_failed += 1
             stats.failures.append(f"{source}: {exc}")
@@ -166,6 +173,10 @@ def run_pipeline(
             decision = apply_hard_filters(normalised, profile=profile, policy=policy, fx=fx)
             normalised.flags.extend(decision.flags)
             canonical = to_canonical(normalised)
+            # The link checker deleted this job as closed; don't resurrect it.
+            is_closed = getattr(repo, "is_closed", None)
+            if is_closed is not None and is_closed(canonical.canonical_fingerprint):
+                continue
             attach_usd(canonical, fx)
             if not decision.accepted:
                 canonical.rejected = True
@@ -178,6 +189,9 @@ def run_pipeline(
                 existing = repo.get_by_fingerprint(canonical.canonical_fingerprint)
                 # Never let a reject overwrite an accepted, scored row.
                 if existing and not existing.rejected and existing.fit_score is not None:
+                    continue
+                # Already stored as rejected for the same reasons: skip the round-trip.
+                if existing and existing.rejected and sorted(existing.rejection_reasons or []) == sorted(decision.reasons):
                     continue
                 repo.upsert_job(canonical, source_ref_from(normalised))
                 continue

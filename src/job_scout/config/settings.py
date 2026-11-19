@@ -46,10 +46,15 @@ class Settings(BaseSettings):
     job_scout_send_email: bool = False
     job_scout_live: bool = False
     job_scout_config_dir: str = "config"
+    # Public URL of the GitHub Pages jobs dashboard (linked from the summary email).
+    dashboard_url: str = ""
 
-    request_timeout_seconds: float = 25.0
-    request_retries: int = 3
+    request_timeout_seconds: float = 15.0
+    request_retries: int = 2
     request_backoff_seconds: float = 1.5
+    # Wall-clock budget per source and parallel fetch workers for one scrape run.
+    source_budget_seconds: float = 180.0
+    fetch_workers: int = 8
     max_pages_per_source: int = 4
     max_job_age_days: int = 45
     fx_base_currency: str = "USD"

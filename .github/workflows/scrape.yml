@@ -20,11 +20,14 @@ permissions:
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # A normal run takes ~3-5 minutes; this is only a safety net.
+    timeout-minutes: 20
     env:
       JOB_SCOUT_ENV: github
       JOB_SCOUT_LOG_LEVEL: INFO
       JOB_SCOUT_USER_AGENT: JobScout/1.0 (personal job search; GitHub Actions)
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -34,9 +37,6 @@ jobs:
       - name: Install
         run: pip install -e .
       - name: Verify Supabase secrets
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
           if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
             echo "Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY repository secrets."
@@ -44,16 +44,40 @@ jobs:
           fi
           echo "Supabase secrets are present."
       - name: Health preflight
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: python -m job_scout health
       - name: Scrape all pipelines
+        timeout-minutes: 12
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           USAJOBS_API_KEY: ${{ secrets.USAJOBS_API_KEY }}
           USAJOBS_USER_AGENT: ${{ secrets.USAJOBS_USER_AGENT }}
           ADZUNA_APP_ID: ${{ secrets.ADZUNA_APP_ID }}
           ADZUNA_APP_KEY: ${{ secrets.ADZUNA_APP_KEY }}
         run: python -m job_scout scrape
+      - name: Remove closed jobs
+        if: always()
+        timeout-minutes: 5
+        run: python -m job_scout prune
+      - name: Build dashboard
+        if: always()
+        run: python -m job_scout dashboard --out site
+      - name: Upload dashboard
+        if: always()
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy-dashboard:
+    needs: scrape
+    if: always() && needs.scrape.result != 'cancelled'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4

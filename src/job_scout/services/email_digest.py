@@ -160,178 +160,52 @@ def job_excerpt(job: CanonicalJobRecord, *, max_chars: int = 220) -> str:
     return cut.rstrip(".,;:") + "…"
 
 
-def _status_for(job: CanonicalJobRecord, selection: DigestSelection) -> CardStatus:
-    if job.canonical_fingerprint in selection.new_ids:
-        return "new"
-    if job.canonical_fingerprint in selection.updated_ids:
-        return "updated"
-    return "returning"
+def _region(job: CanonicalJobRecord) -> str:
+    cc = (job.country_code or "").upper()
+    if cc == "US":
+        return "US"
+    if cc == "ZA":
+        return "ZA"
+    return "other"
 
 
-def _status_badge(status: CardStatus) -> str:
-    styles = {
-        "new": ("NEW", "#0b5fff", "#e8f0ff"),
-        "updated": ("UPDATED", "#b45309", "#fff7ed"),
-        "returning": ("SEEN BEFORE", "#4b5563", "#f3f4f6"),
-    }
-    label, fg, bg = styles[status]
-    return (
-        f'<span style="display:inline-block;background:{bg};color:{fg};'
-        f"font-size:11px;font-weight:bold;letter-spacing:.04em;"
-        f'padding:3px 8px;border-radius:4px;margin-right:8px">{label}</span>'
-    )
+def _sponsor_stated(job: CanonicalJobRecord) -> bool:
+    return job.mobility.visa_sponsorship is True
 
 
-def _card(job: CanonicalJobRecord, status: CardStatus) -> str:
-    apply_url = resolve_apply_url(job)
-    safe_url = html.escape(apply_url, quote=True) if apply_url else ""
-    secondary = ""
-    if (
-        job.direct_employer_url
-        and job.apply_url
-        and job.apply_url != job.direct_employer_url
-        and job.apply_url.startswith("https://")
-    ):
-        sec = html.escape(job.apply_url, quote=True)
-        sec_host = html.escape(apply_url_host(job.apply_url) or "external")
-        secondary = (
-            f'<p style="margin:8px 0 0;font-size:13px">'
-            f'<a href="{sec}" style="color:#0f6b4c;text-decoration:underline">'
-            f"Secondary source ({sec_host})</a></p>"
-        )
-    reasons = "".join(f"<li>{html.escape(item)}</li>" for item in job.fit_reasons[:3])
-    concerns = "".join(f"<li>{html.escape(item)}</li>" for item in job.concerns[:2])
-    remote = ""
-    if job.work_mode == WorkMode.REMOTE:
-        remote = (
-            f'<p style="margin:0 0 8px"><strong>Remote eligibility:</strong> '
-            f"{html.escape(job.remote_scope.value)}</p>"
-        )
-    visa = "Unknown" if job.mobility.visa_sponsorship is None else ("Yes" if job.mobility.visa_sponsorship else "No")
-    reloc = (
-        "Unknown"
-        if job.mobility.relocation_assistance is None
-        else ("Yes" if job.mobility.relocation_assistance else "No")
-    )
-    work_auth = html.escape(job.mobility.work_authorisation_notes or "Unknown — not inferred")
-    first_seen = job.first_seen_at.date().isoformat() if job.first_seen_at else "Unknown"
-    posted = job.date_posted.date().isoformat() if job.date_posted else "Unknown"
-    closing = job.closing_date.isoformat() if job.closing_date else "Unknown"
-    title_html = html.escape(job.title)
-    if safe_url:
-        title_html = (
-            f'<a href="{safe_url}" style="color:#0f6b4c;text-decoration:none">{title_html}</a>'
-        )
-    host_label = html.escape(apply_url_host(apply_url) or "external link")
-    cta = (
-        f'<a href="{safe_url}" style="display:inline-block;background:#0f6b4c;color:#ffffff;'
-        f"font-family:Arial,sans-serif;font-size:14px;font-weight:bold;text-decoration:none;"
-        f'padding:12px 18px;border-radius:6px">View / apply →</a>'
-        f'<div style="margin-top:6px;font-size:12px;color:#666">{host_label} — verify before applying</div>'
-        if safe_url
-        else '<span style="color:#888">No application URL available</span>'
-    )
-    excerpt = job_excerpt(job)
-    excerpt_html = (
-        f'<p style="margin:0 0 10px;font-size:14px;line-height:1.45;color:#333">{html.escape(excerpt)}</p>'
-        if excerpt
-        else ""
-    )
+def _tile(label: str, value: object, *, fg: str, bg: str, border: str) -> str:
     return f"""
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 16px;border:1px solid #d8d8d8;border-radius:8px;background:#ffffff">
-      <tr><td style="padding:16px;font-family:Arial,sans-serif;color:#222">
-        <p style="margin:0 0 8px;font-size:12px;color:#555">
-          {_status_badge(status)}
-          <span style="letter-spacing:.04em">{job.fit_category or ''} · {job.fit_score if job.fit_score is not None else '—'}/100</span>
-        </p>
-        <h3 style="margin:0 0 8px;font-size:18px;line-height:1.3">{title_html}</h3>
-        <p style="margin:0 0 8px"><strong>{html.escape(job.company or 'Unknown company')}</strong><br>
-        {html.escape(job.location_text or 'Location unknown')} · {html.escape(job.work_mode.value)}</p>
-        {excerpt_html}
-        {remote}
-        <p style="margin:0 0 8px">{html.escape(salary_label(job))}</p>
-        <p style="margin:0 0 8px">Posted: {posted} · Closing: {closing} · First seen: {first_seen}</p>
-        <p style="margin:0 0 8px">Visa sponsorship: {visa} · Relocation: {reloc}<br>Work-authorisation: {work_auth}</p>
-        <p style="margin:0 0 4px"><strong>Why this fits</strong></p>
-        <ul style="margin:0 0 8px;padding-left:18px">{reasons}</ul>
-        <p style="margin:0 0 4px"><strong>Gaps / concerns</strong></p>
-        <ul style="margin:0 0 14px;padding-left:18px">{concerns or '<li>None recorded</li>'}</ul>
-        <p style="margin:0">{cta}</p>
-        {secondary}
-      </td></tr>
-    </table>
-    """
-
-
-def _stat_cell(label: str, value: object, *, fg: str, bg: str, border: str) -> str:
-    return f"""
-    <td width="25%" valign="top" style="padding:6px">
+    <td width="25%" valign="top" style="padding:5px">
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid {border};border-radius:8px;background:{bg}">
         <tr><td style="padding:10px 12px;font-family:Arial,sans-serif">
-          <div style="font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:{fg};font-weight:bold">{html.escape(label)}</div>
-          <div style="font-size:22px;line-height:1.2;color:{fg};font-weight:bold;margin-top:4px">{html.escape(str(value))}</div>
+          <div style="font-size:26px;line-height:1.1;color:{fg};font-weight:bold">{html.escape(str(value))}</div>
+          <div style="font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:{fg};margin-top:4px">{html.escape(label)}</div>
         </td></tr>
       </table>
     </td>
     """
 
 
-def _stats_table(summary: dict[str, int], health: dict[str, Any]) -> str:
-    found = health.get("jobs_found", summary.get("found", 0))
-    discarded = health.get("jobs_discarded", summary.get("discarded", 0))
-    cells = [
-        _stat_cell("Found (recent scrapes)", found, fg="#1d4ed8", bg="#eff6ff", border="#bfdbfe"),
-        _stat_cell("Discarded (recent)", discarded, fg="#4b5563", bg="#f3f4f6", border="#d1d5db"),
-        _stat_cell("New", summary.get("new", 0), fg="#0f766e", bg="#f0fdfa", border="#99f6e4"),
-        _stat_cell("Updated", summary.get("updated", 0), fg="#b45309", bg="#fff7ed", border="#fdba74"),
-        _stat_cell("Remote", summary.get("remote", 0), fg="#0f6b4c", bg="#f3faf6", border="#c5ddd2"),
-        _stat_cell("Hybrid", summary.get("hybrid", 0), fg="#92400e", bg="#fffbeb", border="#fcd34d"),
-        _stat_cell("On-site", summary.get("onsite", 0), fg="#9f1239", bg="#fff1f2", border="#fda4af"),
-        _stat_cell("Perfect match", summary.get("exceptional", 0), fg="#6d28d9", bg="#f5f3ff", border="#c4b5fd"),
-    ]
-    row1 = "".join(cells[:4])
-    row2 = "".join(cells[4:])
-    returning = summary.get("returning", 0)
-    return f"""
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 8px">
-      <tr>{row1}</tr>
-      <tr>{row2}</tr>
-    </table>
-    <p style="margin:4px 0 0;font-size:12px;color:#555;font-family:Arial,sans-serif">
-      Still open from earlier digests (not re-listed above): {returning}
-    </p>
-    """
-
-
-def _returning_section(jobs: list[CanonicalJobRecord], *, limit: int = 12) -> str:
-    if not jobs:
-        return ""
+def _top_rows(jobs: list[CanonicalJobRecord], limit: int) -> str:
     rows = []
     for job in jobs[:limit]:
         url = resolve_apply_url(job)
         title = html.escape(job.title)
-        company = html.escape(job.company or "Unknown")
-        score = job.fit_score if job.fit_score is not None else "—"
         if url:
-            safe = html.escape(url, quote=True)
-            title = f'<a href="{safe}" style="color:#0f6b4c;text-decoration:none">{title}</a>'
+            title = (
+                f'<a href="{html.escape(url, quote=True)}" '
+                f'style="color:#0f6b4c;text-decoration:none;font-weight:bold">{title}</a>'
+            )
+        visa = ' &middot; <span style="color:#0f6b4c">sponsorship stated</span>' if _sponsor_stated(job) else ""
+        score = job.fit_score if job.fit_score is not None else "-"
+        where = html.escape(job.location_text or job.work_mode.value)
         rows.append(
-            f'<li style="margin:0 0 8px">{_status_badge("returning")} '
-            f"<strong>{title}</strong> — {company} · {job.fit_category or ''} {score}/100</li>"
+            f"""<tr><td style="padding:9px 0;border-top:1px solid #e5e7eb;font-family:Arial,sans-serif;font-size:14px;color:#222">
+            <span style="display:inline-block;min-width:34px;font-weight:bold;color:#0f6b4c">{score}</span>{title}<br>
+            <span style="font-size:12px;color:#666;padding-left:38px">{html.escape(job.company or "Unknown")} &middot; {where}{visa}</span>
+            </td></tr>"""
         )
-    more = ""
-    if len(jobs) > limit:
-        more = f'<p style="margin:8px 0 0;color:#555;font-size:13px">+{len(jobs) - limit} more still open.</p>'
-    return f"""
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 24px">
-      <tr><td style="background:#4b5563;color:#fff;padding:10px 14px;font-family:Arial,sans-serif;font-size:16px;font-weight:bold">STILL OPEN (seen before)</td></tr>
-      <tr><td style="padding:12px 14px;font-family:Arial,sans-serif;background:#ffffff;border:1px solid #d8d8d8;border-top:0">
-        <p style="margin:0 0 10px;font-size:13px;color:#555">Previously emailed matches that remain active. Not counted in New/Updated above.</p>
-        <ul style="margin:0;padding-left:18px">{''.join(rows)}</ul>
-        {more}
-      </td></tr>
-    </table>
-    """
+    return "".join(rows)
 
 
 def render_digest_html(
@@ -339,66 +213,74 @@ def render_digest_html(
     *,
     health: dict[str, Any],
     digest_date: date | None = None,
+    dashboard_url: str = "",
+    top_n: int = 5,
 ) -> str:
+    """Compact morning summary: counts plus a link to the dashboard. No long job lists."""
     digest_date = digest_date or utcnow().date()
-    sections = []
-    for mode, title, colour in (
-        (WorkMode.REMOTE, "REMOTE", "#0f6b4c"),
-        (WorkMode.HYBRID, "HYBRID", "#8a5a00"),
-        (WorkMode.ONSITE, "ON-SITE", "#6b1f3b"),
-    ):
-        cards = [
-            _card(job, _status_for(job, selection))
-            for job in selection.jobs
-            if job.work_mode == mode
+    new_jobs = [j for j in selection.jobs if j.canonical_fingerprint in selection.new_ids]
+    s = selection.summary
+    strong_new = sum(1 for j in new_jobs if j.fit_category in {FitCategory.EXCEPTIONAL, FitCategory.STRONG})
+    us_new = sum(1 for j in new_jobs if _region(j) == "US")
+    sponsor_new = sum(1 for j in new_jobs if _sponsor_stated(j))
+    open_total = health.get("dashboard_open", s.get("included", 0) + s.get("returning", 0))
+    removed = health.get("closed_removed")
+    grey = {"fg": "#374151", "bg": "#f9fafb", "border": "#e5e7eb"}
+    row1 = "".join(
+        [
+            _tile("New matches", len(new_jobs), fg="#0f766e", bg="#f0fdfa", border="#99f6e4"),
+            _tile("Strong or better", strong_new, fg="#6d28d9", bg="#f5f3ff", border="#c4b5fd"),
+            _tile("New in the US", us_new, fg="#1d4ed8", bg="#eff6ff", border="#bfdbfe"),
+            _tile("Sponsorship stated", sponsor_new, fg="#0f6b4c", bg="#f3faf6", border="#c5ddd2"),
         ]
-        body = "".join(cards) or (
-            '<p style="font-family:Arial,sans-serif;color:#555">No new or updated matches in this section.</p>'
+    )
+    row2 = "".join(
+        [
+            _tile("Remote", sum(1 for j in new_jobs if j.work_mode == WorkMode.REMOTE), **grey),
+            _tile("Hybrid", sum(1 for j in new_jobs if j.work_mode == WorkMode.HYBRID), **grey),
+            _tile("On-site", sum(1 for j in new_jobs if j.work_mode == WorkMode.ONSITE), **grey),
+            _tile("Open on dashboard", open_total, **grey),
+        ]
+    )
+    cta = ""
+    if dashboard_url:
+        link = html.escape(dashboard_url.rstrip("/") + "/?new=1", quote=True)
+        cta = f"""<p style="margin:18px 0 6px;text-align:center">
+          <a href="{link}" style="display:inline-block;background:#0f6b4c;color:#ffffff;font-family:Arial,sans-serif;font-size:16px;font-weight:bold;text-decoration:none;padding:14px 26px;border-radius:8px">Open the jobs dashboard &rarr;</a></p>
+          <p style="margin:0 0 4px;text-align:center;font-family:Arial,sans-serif;font-size:12px;color:#666">Filter by region, visa sponsorship, fit and work mode. Closed links are removed daily.</p>"""
+    if new_jobs:
+        more = len(new_jobs) - min(top_n, len(new_jobs))
+        more_html = (
+            f'<p style="margin:8px 0 0;font-family:Arial,sans-serif;font-size:13px;color:#555">+{more} more on the dashboard.</p>'
+            if more > 0
+            else ""
         )
-        sections.append(
-            f"""
-            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 24px">
-              <tr><td style="background:{colour};color:#fff;padding:10px 14px;font-family:Arial,sans-serif;font-size:16px;font-weight:bold">{title}</td></tr>
-              <tr><td style="padding:12px 0 0">{body}</td></tr>
-            </table>
-            """
-        )
-    sections.append(_returning_section(selection.returning))
+        top = f"""<h2 style="margin:22px 0 4px;font-family:Arial,sans-serif;font-size:15px;color:#1a1a1a">Top new matches</h2>
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">{_top_rows(new_jobs, top_n)}</table>{more_html}"""
+    else:
+        top = '<p style="margin:18px 0 0;font-family:Arial,sans-serif;color:#555">No new matches since the last summary.</p>'
     failed = [str(item) for item in (health.get("failed_sources") or []) if item]
-    stale = [str(item) for item in (health.get("stale_sources") or []) if item]
-    last_scrape = health.get("last_successful_scrape") or "unknown"
-    summary = selection.summary
-    sources_ok = health.get("sources_ok", 0)
-    sources_failed = health.get("sources_failed", 0)
+    health_bits = [f"Sources {health.get('sources_ok', 0)} ok / {health.get('sources_failed', 0)} failing"]
+    if removed is not None:
+        health_bits.append(f"{removed} closed jobs removed")
+    if failed:
+        health_bits.append("failing: " + ", ".join(failed[:6]))
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Daily Job Scout</title></head>
+<title>Job Scout summary</title></head>
 <body style="margin:0;padding:0;background:#f3f3f3">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f3f3">
     <tr><td align="center" style="padding:16px">
-      <table role="presentation" width="640" cellpadding="0" cellspacing="0" style="max-width:640px;width:100%">
-        <tr><td style="font-family:Arial,sans-serif;padding:8px 0 12px">
-          <h1 style="margin:0 0 12px;font-size:22px;color:#1a1a1a">Daily Job Scout — {digest_date.strftime('%d %b %Y')}</h1>
-          {_stats_table(summary, health)}
-          <p style="margin:8px 0 0;font-size:13px;color:#333;font-family:Arial,sans-serif">
-            In this email: {summary.get('included', 0)}
-            · New {summary.get('new', 0)}
-            · Updated {summary.get('updated', 0)}
-            · Exceptional {summary.get('exceptional', 0)}
-            · Strong {summary.get('strong', 0)}
-            · Good {summary.get('good', 0)}
-            · Possible {summary.get('possible', 0)}
-            · Sources {sources_ok} ok / {sources_failed} failed
-          </p>
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border:1px solid #e5e7eb;border-radius:10px">
+        <tr><td style="padding:20px 20px 8px;font-family:Arial,sans-serif">
+          <h1 style="margin:0;font-size:20px;color:#1a1a1a">Job Scout &middot; {digest_date.strftime('%d %b %Y')}</h1>
+          <p style="margin:4px 0 12px;font-size:13px;color:#555">{len(new_jobs)} new matching jobs since the last summary.</p>
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>{row1}</tr><tr>{row2}</tr></table>
+          {cta}
+          {top}
         </td></tr>
-        <tr><td>{''.join(sections)}</td></tr>
-        <tr><td style="font-family:Arial,sans-serif;font-size:13px;color:#555;padding:12px 0 24px">
-          <p><strong>System health</strong><br>
-          Last successful scrape: {html.escape(str(last_scrape))}<br>
-          Failed sources: {html.escape(', '.join(failed) or 'none')}<br>
-          Stale sources: {html.escape(', '.join(stale) or 'none')}</p>
-        </td></tr>
+        <tr><td style="padding:14px 20px 18px;font-family:Arial,sans-serif;font-size:12px;color:#777">{html.escape(" · ".join(health_bits))}</td></tr>
       </table>
     </td></tr>
   </table>
@@ -408,12 +290,17 @@ def render_digest_html(
 
 def subject_line(selection: DigestSelection, digest_date: date | None = None) -> str:
     digest_date = digest_date or utcnow().date()
-    strong = selection.summary.get("exceptional", 0) + selection.summary.get("strong", 0)
-    included = selection.summary.get("included", 0)
-    date_s = digest_date.strftime("%d %b %Y")
-    if strong > 0:
-        return f"Daily Job Scout — {strong} Strong Matches | {date_s}"
-    return f"Daily Job Scout — {included} Matches | {date_s}"
+    new = selection.summary.get("new", 0)
+    strong_new = sum(
+        1
+        for j in selection.jobs
+        if j.canonical_fingerprint in selection.new_ids
+        and j.fit_category in {FitCategory.EXCEPTIONAL, FitCategory.STRONG}
+    )
+    date_s = digest_date.strftime("%d %b")
+    if strong_new:
+        return f"Job Scout: {new} new jobs ({strong_new} strong) | {date_s}"
+    return f"Job Scout: {new} new jobs | {date_s}"
 
 
 def send_resend(subject: str, html_body: str, settings: Settings) -> dict[str, Any]:
@@ -426,7 +313,7 @@ def send_resend(subject: str, html_body: str, settings: Settings) -> dict[str, A
         "to": [settings.digest_to],
         "subject": subject,
         "html": html_body,
-        "text": "This digest is HTML. Open it in an HTML-capable client.",
+        "text": f"{subject}\n\nOpen the dashboard: {settings.dashboard_url}",
     }
     headers = {
         "Authorization": f"Bearer {settings.resend_api_key}",
@@ -485,9 +372,16 @@ def build_and_maybe_send(
             health["sources_ok"] += 1
         if row.get("consecutive_failures", 0) >= 2:
             health["stale_sources"].append(row.get("source"))
+    if hasattr(repo, "list_active_jobs"):
+        try:
+            health["dashboard_open"] = sum(
+                1 for job in repo.list_active_jobs() if job.fit_score is not None and job.fit_score >= min_score
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Could not count open dashboard jobs: %s", exc)
     if extra_health:
         health.update(extra_health)
-    html_body = render_digest_html(selection, health=health)
+    html_body = render_digest_html(selection, health=health, dashboard_url=settings.dashboard_url)
     subject = subject_line(selection)
     result = {
         "subject": subject,

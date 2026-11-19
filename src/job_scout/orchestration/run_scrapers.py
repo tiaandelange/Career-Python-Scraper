@@ -7,7 +7,9 @@ import json
 import logging
 import time
 
+from job_scout.adapters.registry import iter_adapters
 from job_scout.config.settings import get_settings
+from job_scout.pipelines.fetching import prefetch_sources
 from job_scout.pipelines.hybrid import run_hybrid_pipeline
 from job_scout.pipelines.onsite import run_onsite_pipeline
 from job_scout.pipelines.remote import run_remote_pipeline
@@ -45,9 +47,26 @@ def run_all(memory: bool = False) -> dict:
     t0 = time.perf_counter()
     pipeline_errors: list[str] = []
 
+    # One indexed read of existing jobs instead of 3 SELECTs per job during upserts.
+    if hasattr(repo, "preload_jobs"):
+        try:
+            loaded = repo.preload_jobs()
+            logger.info("Preloaded %s existing jobs", loaded)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Job preload failed; falling back to per-job lookups: %s", exc)
+
+    # Fetch every enabled source exactly once, in parallel, each with its own time budget.
+    adapters = [*iter_adapters(pipeline="remote"), *iter_adapters(pipeline="hybrid"), *iter_adapters(pipeline="onsite")]
+    prefetched = prefetch_sources(
+        adapters,
+        budget_seconds=settings.source_budget_seconds,
+        workers=settings.fetch_workers,
+    )
+    logger.info("Fetch phase finished in %.1fs", time.perf_counter() - t0)
+
     def _safe(name: str, fn):
         try:
-            return fn(repo, fx)
+            return fn(repo, fx, prefetched)
         except Exception as exc:  # noqa: BLE001
             logger.exception("%s pipeline failed", name)
             pipeline_errors.append(f"{name}: {exc}")

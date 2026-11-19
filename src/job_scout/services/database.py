@@ -68,6 +68,7 @@ class InMemoryJobRepository:
         self.digest_runs: list[dict[str, Any]] = []
         self.fx_rates: dict[tuple[str, str, date], tuple[Decimal, bool]] = {}
         self.missing_counts: dict[str, int] = {}
+        self.closed: set[str] = set()
 
     def upsert_job(self, job: CanonicalJobRecord, source: JobSourceRef) -> CanonicalJobRecord:
         existing = self.jobs.get(job.canonical_fingerprint)
@@ -100,6 +101,22 @@ class InMemoryJobRepository:
 
     def get_by_fingerprint(self, fingerprint: str) -> CanonicalJobRecord | None:
         return self.jobs.get(fingerprint)
+
+    def list_active_jobs(self) -> list[CanonicalJobRecord]:
+        return [job for job in self.jobs.values() if job.active and not job.rejected]
+
+    def delete_jobs(self, fingerprints: list[str], *, tombstone: bool = True) -> int:
+        deleted = 0
+        for fp in fingerprints:
+            if self.jobs.pop(fp, None) is not None:
+                deleted += 1
+            self.sources.pop(fp, None)
+            if tombstone:
+                self.closed.add(fp)
+        return deleted
+
+    def is_closed(self, fingerprint: str) -> bool:
+        return fingerprint in self.closed
 
     def list_digest_candidates(self, since: datetime | None, min_score: int) -> list[CanonicalJobRecord]:
         out = []
@@ -209,6 +226,97 @@ class SupabaseJobRepository:
         self.client = create_client(self.settings.supabase_url, self.settings.supabase_service_role_key)
         self._jobs_columns: frozenset[str] | None = None
         self._warned_missing_columns = False
+        # fingerprint -> job, populated by preload_jobs(). When loaded it is authoritative,
+        # so a miss means "not in the table" without a round-trip.
+        self._cache: dict[str, CanonicalJobRecord] | None = None
+
+    def preload_jobs(self, page_size: int = 1000) -> int:
+        cache: dict[str, CanonicalJobRecord] = {}
+        start = 0
+        while True:
+            result = (
+                self.client.table("jobs")
+                .select("*")
+                .order("id")
+                .range(start, start + page_size - 1)
+                .execute()
+            )
+            rows = result.data or []
+            for row in rows:
+                job = _row_to_job(row)
+                cache[job.canonical_fingerprint] = job
+            if len(rows) < page_size:
+                break
+            start += page_size
+        self._cache = cache
+        self._closed = self.closed_fingerprints()
+        return len(cache)
+
+    def is_closed(self, fingerprint: str) -> bool:
+        """True when the link checker deleted this job as closed; scrapes must not re-add it."""
+        return fingerprint in getattr(self, "_closed", set())
+
+    def list_active_jobs(self) -> list[CanonicalJobRecord]:
+        """Every active, non-rejected job with its source URLs (dashboard + link checks)."""
+        jobs: list[CanonicalJobRecord] = []
+        start = 0
+        page_size = 1000
+        while True:
+            query = self.client.table("jobs").select("*").eq("active", True)
+            if "rejected" in self.jobs_columns():
+                query = query.eq("rejected", False)
+            rows = query.order("id").range(start, start + page_size - 1).execute().data or []
+            jobs.extend(_row_to_job(row) for row in rows)
+            if len(rows) < page_size:
+                break
+            start += page_size
+        jobs = [job for job in jobs if not job.rejected]
+        return self._hydrate_apply_urls(jobs)
+
+    def delete_jobs(self, fingerprints: list[str], *, tombstone: bool = True) -> int:
+        """Hard-delete jobs (job_sources rows cascade); optionally remember them as closed."""
+        deleted = 0
+        for i in range(0, len(fingerprints), 100):
+            chunk = fingerprints[i : i + 100]
+            result = self.client.table("jobs").delete().in_("canonical_fingerprint", chunk).execute()
+            deleted += len(result.data or [])
+            if not tombstone:
+                if self._cache is not None:
+                    for fp in chunk:
+                        self._cache.pop(fp, None)
+                continue
+            try:
+                self.client.table("closed_jobs").upsert(
+                    [{"canonical_fingerprint": fp, "closed_at": utcnow().isoformat()} for fp in chunk],
+                    on_conflict="canonical_fingerprint",
+                ).execute()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("closed_jobs tombstone write skipped (apply migration 0004?): %s", exc)
+            if self._cache is not None:
+                for fp in chunk:
+                    self._cache.pop(fp, None)
+        return deleted
+
+    def closed_fingerprints(self) -> set[str]:
+        try:
+            out: set[str] = set()
+            start = 0
+            while True:
+                rows = (
+                    self.client.table("closed_jobs")
+                    .select("canonical_fingerprint")
+                    .range(start, start + 999)
+                    .execute()
+                    .data
+                    or []
+                )
+                out.update(row["canonical_fingerprint"] for row in rows)
+                if len(rows) < 1000:
+                    return out
+                start += 1000
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("closed_jobs table unavailable (apply migration 0004?): %s", exc)
+            return set()
 
     def jobs_columns(self) -> frozenset[str]:
         if self._jobs_columns is None:
@@ -263,7 +371,7 @@ class SupabaseJobRepository:
         if job.rejected and "rejected" not in columns:
             payload["active"] = False
         try:
-            self.client.table("jobs").upsert(payload, on_conflict="canonical_fingerprint").execute()
+            result = self.client.table("jobs").upsert(payload, on_conflict="canonical_fingerprint").execute()
         except Exception as exc:  # noqa: BLE001
             missing_col = _pgrst204_column(exc)
             if missing_col and missing_col in payload:
@@ -271,10 +379,19 @@ class SupabaseJobRepository:
                 payload.pop(missing_col, None)
                 if self._jobs_columns is not None:
                     self._jobs_columns = frozenset(c for c in self._jobs_columns if c != missing_col)
-                self.client.table("jobs").upsert(payload, on_conflict="canonical_fingerprint").execute()
+                result = self.client.table("jobs").upsert(payload, on_conflict="canonical_fingerprint").execute()
             else:
                 raise
-        stored = self.get_by_fingerprint(job.canonical_fingerprint)
+        # PostgREST returns the written row; use it instead of a follow-up SELECT.
+        returned = getattr(result, "data", None) or []
+        if returned:
+            stored = _row_to_job(returned[0])
+            if self._cache is not None:
+                self._cache[stored.canonical_fingerprint] = stored
+        else:
+            if self._cache is not None:
+                self._cache.pop(job.canonical_fingerprint, None)
+            stored = self._select_by_fingerprint(job.canonical_fingerprint)
         if stored and stored.id:
             self.client.table("job_sources").upsert(
                 {
@@ -294,6 +411,12 @@ class SupabaseJobRepository:
         return stored or job
 
     def get_by_fingerprint(self, fingerprint: str) -> CanonicalJobRecord | None:
+        if self._cache is not None:
+            cached = self._cache.get(fingerprint)
+            return cached.model_copy(deep=True) if cached is not None else None
+        return self._select_by_fingerprint(fingerprint)
+
+    def _select_by_fingerprint(self, fingerprint: str) -> CanonicalJobRecord | None:
         result = self.client.table("jobs").select("*").eq("canonical_fingerprint", fingerprint).limit(1).execute()
         rows = result.data or []
         if not rows:

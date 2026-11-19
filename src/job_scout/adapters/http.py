@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from contextvars import ContextVar
 from typing import Any
 from urllib.parse import urljoin, urlsplit, urlunsplit
 
@@ -15,6 +16,15 @@ from bs4 import BeautifulSoup
 from job_scout.config.settings import Settings, get_settings
 
 logger = logging.getLogger(__name__)
+
+# Monotonic deadline for the source currently being fetched (set per worker thread by the
+# scrape runner). Once passed, every further request fails fast so a slow board cannot
+# hold the whole run hostage.
+FETCH_DEADLINE: ContextVar[float | None] = ContextVar("job_scout_fetch_deadline", default=None)
+
+
+class SourceBudgetExceeded(TimeoutError):
+    """The per-source time budget ran out; remaining requests are skipped."""
 
 
 def redact_url(url: str) -> str:
@@ -78,9 +88,15 @@ class HttpClient:
         backoff = self.settings.request_backoff_seconds
         last_exc: Exception | None = None
         safe_url = redact_url(url)
+        deadline = FETCH_DEADLINE.get()
         for attempt in range(retries + 1):
+            if deadline is not None and time.monotonic() >= deadline:
+                raise SourceBudgetExceeded(f"source time budget exhausted before {method} {safe_url}")
             self._wait(delay)
             try:
+                if deadline is not None:
+                    remaining = max(1.0, deadline - time.monotonic())
+                    kwargs["timeout"] = min(self.settings.request_timeout_seconds, remaining)
                 response = self.client.request(method, url, **kwargs)
                 self._last_request_at = time.monotonic()
                 if self.allowed_hosts:
@@ -96,6 +112,10 @@ class HttpClient:
                 return response
             except (httpx.HTTPError, httpx.TimeoutException, ValueError) as exc:
                 last_exc = exc
+                # 4xx (except 429) is a definitive answer: retrying a 403/404 only burns time.
+                if isinstance(exc, httpx.HTTPStatusError) and 400 <= exc.response.status_code < 500 and exc.response.status_code != 429:
+                    logger.warning("HTTP %s %s -> %s (not retried)", method, safe_url, exc.response.status_code)
+                    raise
                 logger.warning(
                     "HTTP %s %s failed (attempt %s): %s",
                     method,

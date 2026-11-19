@@ -1,0 +1,62 @@
+"""`prune` deletes closed jobs; `dashboard` writes the static GitHub Pages site."""
+
+from __future__ import annotations
+
+import argparse
+import logging
+from pathlib import Path
+
+from job_scout.config.settings import get_settings, load_scoring
+from job_scout.services.database import InMemoryJobRepository, build_repository
+from job_scout.utils.logging import configure_logging
+
+logger = logging.getLogger(__name__)
+
+
+def _repo(memory: bool):
+    settings = get_settings()
+    if not memory and settings.job_scout_env == "github" and not settings.has_supabase():
+        raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required in GitHub mode")
+    return InMemoryJobRepository() if memory else build_repository(settings)
+
+
+def prune_main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Delete saved jobs whose postings have closed")
+    parser.add_argument("--dry-run", action="store_true", help="Report closed jobs without deleting")
+    parser.add_argument("--stale-days", type=int, default=7)
+    parser.add_argument("--memory", action="store_true")
+    args = parser.parse_args(argv)
+    configure_logging(get_settings().job_scout_log_level)
+    from job_scout.services.link_check import prune_closed_jobs
+
+    try:
+        prune_closed_jobs(_repo(args.memory), dry_run=args.dry_run, stale_days=args.stale_days)
+        return 0
+    except Exception:
+        logger.exception("Prune failed")
+        return 1
+
+
+def dashboard_main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Build the static jobs dashboard")
+    parser.add_argument("--out", default="site", help="Output directory (default: site)")
+    parser.add_argument("--memory", action="store_true")
+    args = parser.parse_args(argv)
+    settings = get_settings()
+    configure_logging(settings.job_scout_log_level)
+    from job_scout.services.dashboard import build_dashboard
+
+    try:
+        repo = _repo(args.memory)
+        min_score = int(load_scoring(settings).get("low_score_cutoff", 60))
+        health = {"sources_failed": 0, "failed_sources": []}
+        for row in repo.list_source_health():
+            if row.get("consecutive_failures", 0) > 0:
+                health["sources_failed"] += 1
+                health["failed_sources"].append(row.get("source"))
+        stats = build_dashboard(repo.list_active_jobs(), Path(args.out), min_score=min_score, health=health)
+        logger.info("Dashboard stats: %s", stats)
+        return 0
+    except Exception:
+        logger.exception("Dashboard build failed")
+        return 1
