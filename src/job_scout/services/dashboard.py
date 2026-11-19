@@ -107,6 +107,7 @@ def build_dashboard(
     *,
     min_score: int = 0,
     health: dict[str, Any] | None = None,
+    tracking: dict[str, str] | None = None,
 ) -> dict[str, int]:
     cards = [
         job_to_card(job)
@@ -123,7 +124,9 @@ def build_dashboard(
         "us": sum(1 for c in cards if c["region"] == "US"),
         "sponsor": sum(1 for c in cards if c["visa"] in {"sponsors", "green-card", "history"}),
     }
-    meta = {"generated": now.isoformat(), "stats": stats, "health": health or {}}
+    # Public Supabase URL + anon key only: row-level security limits job_status to the
+    # signed-in user and every other table has no anon policies at all.
+    meta = {"generated": now.isoformat(), "stats": stats, "health": health or {}, "tracking": tracking or None}
     out_dir.mkdir(parents=True, exist_ok=True)
     # Escape every "<" so scraped text can never close or open tags inside the inline <script>.
     data = json.dumps(cards, ensure_ascii=False, default=str).replace("<", "\\u003c")
@@ -187,6 +190,17 @@ select{padding:5px 8px;border-radius:8px;border:1px solid var(--line);background
 .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
 .empty{padding:40px 16px;text-align:center;color:var(--muted)}
 footer{margin-top:24px;font-size:12px;color:var(--muted)}
+.track{display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:0 0 12px;font-size:13px}
+.track input[type=email]{flex:1 1 220px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font:inherit}
+.track .msg{color:var(--muted)}
+.tabs{display:flex;gap:6px;margin-left:auto}
+.st{font-size:13px}
+.notes{flex:1 1 200px;min-width:0;padding:6px 9px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font:inherit;font-size:13px}
+.card.s-applied,.card.s-interviewing,.card.s-offer{border-left:4px solid var(--accent)}
+.card.s-saved{border-left:4px solid var(--blue)}
+.card.s-rejected,.card.s-not_interested{border-left:4px solid var(--bad);opacity:.7}
+.gone{font-size:12px;color:var(--warn)}
+.actions .msg{font-size:12px;color:var(--muted);align-self:center}
 @media (max-width:640px){.stats{grid-template-columns:repeat(2,1fr)}.card{padding:12px}.controls{position:static}}
 </style>
 </head>
@@ -197,6 +211,7 @@ footer{margin-top:24px;font-size:12px;color:var(--muted)}
   <p id="gen"></p>
 </header>
 <section class="stats" id="stats"></section>
+<section class="track" id="track" hidden></section>
 <section class="controls">
   <input type="search" id="q" placeholder="Search title, company, location..." aria-label="Search jobs">
   <div class="row" id="regions"><span class="lbl">Region</span></div>
@@ -216,6 +231,14 @@ footer{margin-top:24px;font-size:12px;color:var(--muted)}
     <select id="sort" aria-label="Sort"><option value="score">Best fit</option><option value="new">Newest</option><option value="posted">Recently posted</option><option value="closing">Closing soon</option></select>
     <button class="chip" id="onlyNew" aria-pressed="false">New this week</button>
     <button class="chip" id="hideSeen" aria-pressed="false">Hide seen</button>
+    <span class="lbl st-only" hidden>Status</span>
+    <select id="statusFilter" class="st-only" aria-label="Application status filter" hidden>
+      <option value="active">Hide not interested / rejected</option>
+      <option value="all">All</option>
+      <option value="untracked">Not tracked yet</option>
+      <option value="saved">Saved</option><option value="applied">Applied</option>
+      <option value="interviewing">Interviewing</option><option value="offer">Offer</option>
+    </select>
   </div>
 </section>
 <div class="count" id="count"></div>
@@ -234,8 +257,13 @@ let seen = new Set(store.get("jobscout.seen", []));
 const params = new URLSearchParams(location.search);
 const state = {
   q: "", regions: new Set(), modes: new Set(), visa: store.get("jobscout.visa", "open"),
-  fit: "0", sort: "score", onlyNew: params.get("new") === "1", hideSeen: store.get("jobscout.hideSeen", false)
+  fit: "0", sort: "score", onlyNew: params.get("new") === "1", hideSeen: store.get("jobscout.hideSeen", false),
+  status: store.get("jobscout.statusFilter", "active"), view: "jobs"
 };
+const TRACK = META.tracking || null;
+const STATUS = {saved: "Saved", applied: "Applied", interviewing: "Interviewing", offer: "Offer", rejected: "Rejected", not_interested: "Not interested"};
+const HANDLED = new Set(["rejected", "not_interested"]);
+let sb = null, user = null, statuses = new Map(), trackMsg = "";
 const weekAgo = new Date(Date.now() - 7 * 864e5).toISOString();
 const isNew = j => (j.firstSeen || "") >= weekAgo;
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -266,6 +294,12 @@ function filtered() {
     if (j.score < +state.fit) return false;
     if (state.onlyNew && !isNew(j)) return false;
     if (state.hideSeen && seen.has(j.id)) return false;
+    if (user) {
+      const st = statuses.get(j.id)?.status;
+      if (state.status === "active" && HANDLED.has(st)) return false;
+      if (state.status === "untracked" && st) return false;
+      if (STATUS[state.status] && st !== state.status) return false;
+    }
     return true;
   });
   if (state.sort === "new") out.sort((a, b) => (b.firstSeen || "").localeCompare(a.firstSeen || ""));
@@ -283,21 +317,161 @@ function card(j) {
   if (j.closing) tags.push(`<span class="tag closing">Closes ${esc(fmtDate(j.closing))}</span>`);
   const why = j.reasons && j.reasons.length ? `<p class="why">${esc(j.reasons.join(" · "))}</p>` : "";
   const isSeen = seen.has(j.id);
-  return `<article class="card${isSeen ? " seen" : ""}" data-id="${esc(j.id)}">
+  const row = statuses.get(j.id);
+  return `<article class="card${isSeen ? " seen" : ""}${row ? " s-" + row.status : ""}" data-id="${esc(j.id)}">
     <div class="top"><h2><a href="${esc(j.url)}" target="_blank" rel="noopener" data-open>${esc(j.title)}</a></h2>
     <span class="score" title="${esc(j.category)}">${j.score}</span></div>
     <div class="meta">${esc(j.company)} · ${esc(j.location || j.region)}${(j.otherLocations || []).length ? ` <span class="more" title="${esc(j.otherLocations.join(" · "))}">+${j.otherLocations.length} more location${j.otherLocations.length > 1 ? "s" : ""}</span>` : ""} · first seen ${esc(fmtDate(j.firstSeen))}${j.posted ? ` · posted ${esc(fmtDate(j.posted))}` : ""}</div>
     <div class="tags">${tags.join("")}</div>
     ${j.excerpt ? `<p class="excerpt">${esc(j.excerpt)}</p>` : ""}${why}
     <div class="actions"><a class="btn primary" href="${esc(j.url)}" target="_blank" rel="noopener" data-open>Open job</a>
-    <button class="btn" data-seen>${isSeen ? "Mark unseen" : "Mark seen"}</button></div></article>`;
+    <button class="btn" data-seen>${isSeen ? "Mark unseen" : "Mark seen"}</button>${trackControls(j.id, row)}</div></article>`;
+}
+
+function trackControls(id, row) {
+  if (!user) return "";
+  const opts = [`<option value="">Track...</option>`].concat(
+    Object.entries(STATUS).map(([k, v]) => `<option value="${k}"${row && row.status === k ? " selected" : ""}>${v}</option>`)).join("");
+  const applied = row && row.applied_at ? ` <span class="msg">applied ${esc(fmtDate(row.applied_at))}</span>` : "";
+  return `<select class="btn" data-status="${esc(id)}" aria-label="Application status">${opts}</select>` +
+    (row ? `<input class="notes" data-notes="${esc(id)}" placeholder="Notes (contact, salary, follow-up...)" value="${esc(row.notes || "")}">${applied}` : "");
+}
+
+function appRow(r) {
+  const j = JOBS.find(x => x.id === r.canonical_fingerprint);
+  const url = (j && j.url) || r.url || "#";
+  return `<article class="card s-${esc(r.status)}" data-id="${esc(r.canonical_fingerprint)}">
+    <div class="top"><h2><a href="${esc(url)}" target="_blank" rel="noopener">${esc((j && j.title) || r.title || "Job")}</a></h2>
+    ${j ? `<span class="score">${j.score}</span>` : `<span class="gone">no longer listed</span>`}</div>
+    <div class="meta">${esc((j && j.company) || r.company || "")} · updated ${esc(fmtDate(r.updated_at))}</div>
+    <div class="actions">${trackControls(r.canonical_fingerprint, r)}</div></article>`;
 }
 
 function render() {
+  if (state.view === "apps" && user) {
+    const rows = [...statuses.values()].sort((a, b) => (b.updated_at || "").localeCompare(a.updated_at || ""));
+    $("#count").textContent = `${rows.length} tracked job${rows.length === 1 ? "" : "s"}`;
+    $("#list").innerHTML = rows.length ? rows.map(appRow).join("") : '<div class="empty">Nothing tracked yet. Use "Track..." on a job.</div>';
+    return;
+  }
   const rows = filtered();
   $("#count").textContent = `${rows.length} of ${JOBS.length} open jobs`;
   $("#list").innerHTML = rows.length ? rows.map(card).join("") : '<div class="empty">No jobs match these filters.</div>';
 }
+
+function renderTrack() {
+  const el = $("#track");
+  if (!TRACK) { el.hidden = true; return; }
+  el.hidden = false;
+  document.querySelectorAll(".st-only").forEach(n => n.hidden = !user);
+  if (!user) {
+    el.innerHTML = `<b>Track applications</b><input type="email" id="email" placeholder="your@email" autocomplete="email" aria-label="Email for sign-in link">
+      <button class="btn primary" id="signin">Email me a sign-in link</button><span class="msg">${esc(trackMsg)}</span>`;
+    $("#signin").onclick = signIn;
+    $("#email").onkeydown = e => { if (e.key === "Enter") signIn(); };
+    return;
+  }
+  const counts = {};
+  statuses.forEach(r => counts[r.status] = (counts[r.status] || 0) + 1);
+  const summary = ["applied", "interviewing", "offer"].filter(k => counts[k]).map(k => `${counts[k]} ${STATUS[k].toLowerCase()}`).join(" · ");
+  el.innerHTML = `<span>Tracking as <b>${esc(user.email)}</b>${summary ? " · " + esc(summary) : ""}</span>
+    <span class="msg">${esc(trackMsg)}</span>
+    <div class="tabs"><button class="chip" id="vJobs" aria-pressed="${state.view === "jobs"}">Open jobs</button>
+    <button class="chip" id="vApps" aria-pressed="${state.view === "apps"}">My applications (${statuses.size})</button>
+    <button class="btn" id="signout">Sign out</button></div>`;
+  $("#vJobs").onclick = () => { state.view = "jobs"; renderTrack(); render(); };
+  $("#vApps").onclick = () => { state.view = "apps"; renderTrack(); render(); };
+  $("#signout").onclick = async () => { await sb.auth.signOut(); };
+}
+
+async function signIn() {
+  const email = ($("#email").value || "").trim();
+  if (!email) return;
+  trackMsg = "Sending...";
+  renderTrack();
+  const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin + location.pathname } });
+  trackMsg = error ? `Could not send link: ${error.message}` : "Check your email for the sign-in link.";
+  renderTrack();
+}
+
+async function loadStatuses() {
+  statuses = new Map();
+  if (user) {
+    const { data, error } = await sb.from("job_status").select("*");
+    trackMsg = error ? `Could not load your tracking (${error.message})` : "";
+    (data || []).forEach(r => statuses.set(r.canonical_fingerprint, r));
+  }
+  renderTrack();
+  render();
+}
+
+async function saveStatus(id, status, notes) {
+  const prev = statuses.get(id);
+  const j = JOBS.find(x => x.id === id);
+  if (!status) {
+    statuses.delete(id);
+    render(); renderTrack();
+    const { error } = await sb.from("job_status").delete().eq("canonical_fingerprint", id);
+    if (error) { statuses.set(id, prev); trackMsg = `Not saved: ${error.message}`; render(); renderTrack(); }
+    return;
+  }
+  const today = new Date().toISOString().slice(0, 10);
+  const row = {
+    user_id: user.id, canonical_fingerprint: id, status,
+    notes: notes !== undefined ? notes : (prev && prev.notes) || null,
+    title: (j && j.title) || (prev && prev.title) || null,
+    company: (j && j.company) || (prev && prev.company) || null,
+    url: (j && j.url) || (prev && prev.url) || null,
+    applied_at: (prev && prev.applied_at) || (["applied", "interviewing", "offer"].includes(status) ? today : null),
+    updated_at: new Date().toISOString()
+  };
+  statuses.set(id, { ...(prev || {}), ...row });
+  render(); renderTrack();
+  const { error } = await sb.from("job_status").upsert(row, { onConflict: "user_id,canonical_fingerprint" });
+  if (error) {
+    if (prev) statuses.set(id, prev); else statuses.delete(id);
+    trackMsg = `Not saved: ${error.message}`;
+    render(); renderTrack();
+  }
+}
+
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const t = document.createElement("script");
+    t.src = src; t.onload = resolve; t.onerror = reject;
+    document.head.appendChild(t);
+  });
+}
+
+async function initTracking() {
+  if (!TRACK) return;
+  renderTrack();
+  try {
+    await loadScript("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js");
+    sb = window.supabase.createClient(TRACK.url, TRACK.key, { auth: { persistSession: true, detectSessionInUrl: true } });
+    const { data } = await sb.auth.getSession();
+    user = (data && data.session && data.session.user) || null;
+    sb.auth.onAuthStateChange((_event, session) => {
+      const before = user && user.id;
+      user = (session && session.user) || null;
+      if ((user && user.id) !== before) loadStatuses();
+    });
+    await loadStatuses();
+  } catch (e) {
+    trackMsg = "Tracking is unavailable right now.";
+    renderTrack();
+  }
+}
+
+$("#list").addEventListener("change", e => {
+  const sel = e.target.closest("[data-status]");
+  if (sel) { saveStatus(sel.dataset.status, sel.value); return; }
+  const note = e.target.closest("[data-notes]");
+  if (note) {
+    const prev = statuses.get(note.dataset.notes);
+    if (prev) saveStatus(note.dataset.notes, prev.status, note.value.trim() || null);
+  }
+});
 
 $("#list").addEventListener("click", e => {
   const art = e.target.closest(".card"); if (!art) return;
@@ -326,7 +500,10 @@ $("#sort").onchange = e => { state.sort = e.target.value; render(); };
 $("#q").oninput = e => { state.q = e.target.value; render(); };
 toggle($("#onlyNew"), "onlyNew");
 toggle($("#hideSeen"), "hideSeen", "jobscout.hideSeen");
+$("#statusFilter").value = state.status;
+$("#statusFilter").onchange = e => { state.status = e.target.value; store.set("jobscout.statusFilter", state.status); render(); };
 render();
+initTracking();
 </script>
 </body>
 </html>

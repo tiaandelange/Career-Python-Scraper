@@ -264,6 +264,17 @@ def render_digest_html(
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0">{_top_rows(new_jobs, top_n)}</table>{more_html}"""
     else:
         top = '<p style="margin:18px 0 0;font-family:Arial,sans-serif;color:#555">No new matches since the last summary.</p>'
+    apps = health.get("applications") or {}
+    pipeline = " · ".join(
+        f"{apps[k]} {label}"
+        for k, label in (("applied", "applied"), ("interviewing", "interviewing"), ("offer", "offer"), ("saved", "saved"))
+        if apps.get(k)
+    )
+    pipeline_html = (
+        f'<p style="margin:0 0 12px;font-size:13px;color:#0f6b4c"><strong>Your applications:</strong> {html.escape(pipeline)}</p>'
+        if pipeline
+        else ""
+    )
     failed = [str(item) for item in (health.get("failed_sources") or []) if item]
     health_bits = [f"Sources {health.get('sources_ok', 0)} ok / {health.get('sources_failed', 0)} failing"]
     if removed is not None:
@@ -281,6 +292,7 @@ def render_digest_html(
         <tr><td style="padding:20px 20px 8px;font-family:Arial,sans-serif">
           <h1 style="margin:0;font-size:20px;color:#1a1a1a">Job Scout &middot; {digest_date.strftime('%d %b %Y')}</h1>
           <p style="margin:4px 0 12px;font-size:13px;color:#555">{len(new_jobs)} new matching jobs since the last summary.</p>
+          {pipeline_html}
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>{row1}</tr><tr>{row2}</tr></table>
           {cta}
           {top}
@@ -349,6 +361,11 @@ def build_and_maybe_send(
     except ValueError:
         min_category = FitCategory.POSSIBLE
     jobs = repo.list_digest_candidates(repo.last_digest_at(), min_score)
+    # Jobs you have already tracked on the dashboard (applied, rejected, not interested...)
+    # are not "new" to you; leave them out and summarise your pipeline instead.
+    statuses = repo.list_job_statuses() if hasattr(repo, "list_job_statuses") else {}
+    if statuses:
+        jobs = [job for job in jobs if job.canonical_fingerprint not in statuses]
     previous = {job.canonical_fingerprint: job for job in jobs if job.last_notified_at}
     selection = select_digest_jobs(jobs, previous_by_fp=previous, min_category=min_category)
     health = {
@@ -392,6 +409,11 @@ def build_and_maybe_send(
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("Could not count open dashboard jobs: %s", exc)
+    if statuses:
+        counts: dict[str, int] = {}
+        for status in statuses.values():
+            counts[status] = counts.get(status, 0) + 1
+        health["applications"] = counts
     if extra_health:
         health.update(extra_health)
     html_body = render_digest_html(selection, health=health, dashboard_url=settings.dashboard_url)

@@ -67,7 +67,17 @@ def dashboard_main(argv: list[str] | None = None) -> int:
             if row.get("consecutive_failures", 0) > 0:
                 health["sources_failed"] += 1
                 health["failed_sources"].append(row.get("source"))
-        stats = build_dashboard(repo.list_active_jobs(), Path(args.out), min_score=min_score, health=health)
+        # Tracking needs the PUBLIC anon key (never the service-role key) in the page.
+        tracking = None
+        if settings.supabase_url and settings.supabase_anon_key:
+            if settings.supabase_anon_key == settings.supabase_service_role_key:
+                raise RuntimeError("SUPABASE_ANON_KEY equals the service-role key; refusing to publish it")
+            tracking = {"url": settings.supabase_url, "key": settings.supabase_anon_key}
+        else:
+            logger.info("SUPABASE_ANON_KEY not set: dashboard built without application tracking")
+        stats = build_dashboard(
+            repo.list_active_jobs(), Path(args.out), min_score=min_score, health=health, tracking=tracking
+        )
         logger.info("Dashboard stats: %s", stats)
         return 0
     except Exception:

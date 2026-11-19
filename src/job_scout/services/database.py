@@ -69,6 +69,7 @@ class InMemoryJobRepository:
         self.fx_rates: dict[tuple[str, str, date], tuple[Decimal, bool]] = {}
         self.missing_counts: dict[str, int] = {}
         self.closed: set[str] = set()
+        self.job_statuses: dict[str, str] = {}
 
     def upsert_job(self, job: CanonicalJobRecord, source: JobSourceRef) -> CanonicalJobRecord:
         existing = self.jobs.get(job.canonical_fingerprint)
@@ -117,6 +118,9 @@ class InMemoryJobRepository:
 
     def is_closed(self, fingerprint: str) -> bool:
         return fingerprint in self.closed
+
+    def list_job_statuses(self) -> dict[str, str]:
+        return dict(self.job_statuses)
 
     def list_digest_candidates(self, since: datetime | None, min_score: int) -> list[CanonicalJobRecord]:
         out = []
@@ -296,6 +300,15 @@ class SupabaseJobRepository:
                 for fp in chunk:
                     self._cache.pop(fp, None)
         return deleted
+
+    def list_job_statuses(self) -> dict[str, str]:
+        """fingerprint -> application status set on the dashboard (service role reads all rows)."""
+        try:
+            rows = self.client.table("job_status").select("canonical_fingerprint,status").execute().data or []
+        except Exception as exc:  # noqa: BLE001
+            logger.info("job_status unavailable (apply migration 0005?): %s", exc)
+            return {}
+        return {row["canonical_fingerprint"]: row["status"] for row in rows if row.get("canonical_fingerprint")}
 
     def closed_fingerprints(self) -> set[str]:
         try:

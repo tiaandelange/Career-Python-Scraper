@@ -114,6 +114,27 @@ python -m job_scout dashboard --out site
 
 One-time setup: **Settings -> Pages -> Source: GitHub Actions**, and run `supabase/migrations/0004_closed_jobs.sql` so deleted jobs are not re-added by stale listings.
 
+## 12b-2. Application tracking on the dashboard
+
+Each job card gets a status (Saved, Applied, Interviewing, Offer, Rejected, Not interested)
+and a notes field; "My applications" lists everything you tracked, even after the job closes.
+Statuses live in Supabase (`job_status`, private to your account by row-level security), so
+they follow you across devices, and the morning email leaves tracked jobs out and shows your
+application counts instead.
+
+One-time setup:
+
+1. Supabase SQL editor: run `supabase/migrations/0004_closed_jobs.sql` and `0005_job_status.sql`.
+2. Supabase → Project Settings → API: copy the **anon / publishable** key (never the
+   service-role key) into a GitHub secret named `SUPABASE_ANON_KEY`.
+3. Supabase → Authentication → URL Configuration: set Site URL and add a Redirect URL of
+   `https://<owner>.github.io/<repo>/`.
+4. Open the dashboard, enter your email, click the link you receive.
+5. Supabase → Authentication → Sign In / Providers: turn off "Allow new users to sign up" so
+   nobody else can create an account on your project.
+
+Without `SUPABASE_ANON_KEY` the dashboard simply has no tracking bar.
+
 ## 12c. US employers and visa signals
 
 US employers come from Greenhouse / Lever / Ashby / Workday boards in `config/sources.yaml`. ITAR / defence employers are excluded (US persons only). Descriptions are scanned for H-1B / green-card / PERM / EB-2 / EB-3 sponsorship wording, "no sponsorship" wording, and ITAR "U.S. person" requirements; the dashboard's Visa filter uses these.
