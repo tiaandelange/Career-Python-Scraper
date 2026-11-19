@@ -184,7 +184,7 @@ sources:
     request_delay_seconds: 1.5
     max_pages: 1
     max_jobs_per_employer: 30
-    searches: [mechanical engineer, project engineer, water, project manager]
+    searches: [mechanical engineer, project engineer, quality, civil engineer, water]
     employers:
       # Only Primoris (pod wd108) answers automated requests. The wd3/wd5 tenants below return
       # 429 to every non-browser client (verified from home and from GitHub Actions on
@@ -425,12 +425,13 @@ sources:
     salary_often_available: true
     # Free tier: 25 calls/min, 250/day. 20 calls x 3 scrapes/day = 60/day (~1,800/month).
     max_calls: 20
-    max_pages: 2
+    max_pages: 1
     request_delay_seconds: 2.5
     max_job_age_days: 30
     searches:
-      us: [mechanical engineer, water engineer, project engineer, pipeline engineer, engineering project manager, water treatment engineer]
-      za: [mechanical engineer, project manager]
+      us: [mechanical engineer, water engineer, project engineer, pipeline engineer, engineering project manager,
+           water treatment engineer, quality engineer, qa qc engineer, source inspector, civil engineer]
+      za: [mechanical engineer, project manager, quality engineer, civil engineer]
     notes: >
       Official free developer API. Fetches nothing until ADZUNA_APP_ID and ADZUNA_APP_KEY are set
       (GitHub secrets / local .env). Adzuna's predicted salaries (salary_is_predicted=1) are ignored.

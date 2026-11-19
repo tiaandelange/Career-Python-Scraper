@@ -60,6 +60,7 @@ class PruneReport:
     unknown: int = 0
     closed: list[CheckOutcome] = field(default_factory=list)
     deleted: int = 0
+    off_profile: int = 0
 
 
 def job_url(job: CanonicalJobRecord) -> str:
@@ -158,7 +159,21 @@ def find_closed_jobs(
 
 def prune_closed_jobs(repo, *, dry_run: bool = False, stale_days: int = 7) -> PruneReport:
     jobs = repo.list_active_jobs()
+    # Jobs saved before a profile change (e.g. electrical roles now excluded) are removed
+    # here; the scrape no longer accepts them, so they will not come back.
+    from job_scout.config.settings import load_profile
+    from job_scout.pipelines.common import title_excluded
+
+    profile = load_profile()
+    off_profile = [j for j in jobs if title_excluded(j.title, profile)]
+    if off_profile:
+        logger.info("Removing %s saved jobs outside the target disciplines", len(off_profile))
+        if not dry_run:
+            repo.delete_jobs([j.canonical_fingerprint for j in off_profile], tombstone=False)
+        removed = {j.canonical_fingerprint for j in off_profile}
+        jobs = [j for j in jobs if j.canonical_fingerprint not in removed]
     report = find_closed_jobs(jobs, stale_days=stale_days)
+    report.off_profile = len(off_profile)
     for outcome in report.closed:
         logger.info("closed: %s (%s)", outcome.fingerprint, outcome.reason)
     if report.closed and not dry_run:

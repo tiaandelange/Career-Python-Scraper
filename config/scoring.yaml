@@ -43,6 +43,21 @@ professional_positive:
   - geomembrane
   - HDPE
   - PVC liner
+  # Civil / water and quality / inspection work the candidate has done
+  - civil engineer
+  - civil
+  - structural
+  - water resources
+  - wastewater
+  - stormwater
+  - quality engineer
+  - quality control
+  - quality assurance
+  - qa/qc
+  - inspector
+  - inspection engineer
+  - source inspection
+  - vendor inspection
 
 skills_positive:
   - specification
@@ -64,6 +79,18 @@ skills_positive:
   - consultant
   - project management
   - mechanical equipment
+  - inspection and test plan
+  - itp
+  - ndt
+  - non-destructive
+  - factory acceptance
+  - welding
+  - ncr
+  - asme
+  - commissioning
+  - concrete
+  - earthworks
+  - construction supervision
 
 seniority_positive:
   - senior

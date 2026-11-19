@@ -99,6 +99,49 @@ business_operational:
   - guesthouse operations
   - property operations
 
+# Titles in other engineering disciplines that leaked in through description keywords
+# ("infrastructure", "plant", "water"). Regexes, matched case-insensitively against the
+# title. A title that also names one of `keep_if_title_has` stays (e.g. "Electrical &
+# Mechanical Inspector", "Mechanical Engineer - Battery Hardware").
+exclude_titles:
+  patterns:
+    - '\belectrical\b'
+    - '\belectrician'
+    - '\belectronics?\b'
+    - '\bpower (electronics|systems?|distribution|engineer)'
+    - '\binstrumentation\b'
+    - '\bi\s*&\s*c\b'
+    - '\bi&e\b'
+    - '\bscada\b'
+    - '\bplc\b'
+    - '\b(automation|controls?)\s*(and|&)\s*(controls?|automation|electrical)\b'
+    - '(?<!project )\bcontrols? (engineer|specialist|technician|designer|lead|manager|automation)'
+    - '\bautomation (engineer|specialist|technician)'
+    - '\bsubstation\b'
+    - '\bprotection and control\b'
+    - '\b(firmware|embedded|pcb|rf|fpga|asic|semiconductor|silicon)\b'
+    - '\bsoftware\b'
+    - '\b(data|ml|machine learning) (engineer|scientist)'
+    - '\bbess electrical\b'
+    - '\bhigh voltage\b|\bmedium voltage\b|\blow voltage\b|\b[lmh]v (power|distribution)'
+    - '\btelecom|\bnetwork engineer'
+    - '\bhardware\b'
+    - '\bcontrol systems?\b|\bmotion control\b'
+    - '\bdata (platforms?|infrastructure)\b'
+    - '\bpower delivery\b|\btransmission (line|lines|engineer)'
+  keep_if_title_has:
+    - mechanical
+    - civil
+    - structural
+    - piping
+    - hvac
+    - quality
+    - 'qa/qc'
+    - 'qa / qc'
+    - qaqc
+    - inspector
+    - inspection
+
 job_families:
   engineering:
     weight: 1.0
@@ -124,6 +167,21 @@ job_families:
       - Engineering Manager
       - Design Manager
       - Technical Manager
+      # Civil / water disciplines the candidate has worked across
+      - Civil Engineer
+      - Senior Civil Engineer
+      - Water Resources Engineer
+      - Hydraulic Engineer
+      - Dam Safety Engineer
+      - Dams Engineer
+      - Water Engineer
+      - Wastewater Engineer
+      - Structural Engineer
+      - Resident Engineer
+      - Site Engineer
+      - Field Engineer
+      - Commissioning Engineer
+      - Construction Engineer
     keywords:
       - mechanical
       - civil engineer
@@ -142,6 +200,52 @@ job_families:
       - infrastructure
       - technologist
       - works inspector
+  quality_inspection:
+    # QA/QC, manufacturing / vendor inspection and construction inspection.
+    weight: 1.0
+    titles:
+      - Quality Engineer
+      - Senior Quality Engineer
+      - QA/QC Engineer
+      - QA/QC Manager
+      - QA QC Engineer
+      - QAQC Engineer
+      - Quality Control Engineer
+      - Quality Assurance Engineer
+      - Quality Control Manager
+      - Quality Assurance Manager
+      - Quality Manager
+      - Supplier Quality Engineer
+      - Supplier Quality Manager
+      - Source Inspector
+      - Vendor Inspector
+      - Inspection Engineer
+      - Mechanical Inspector
+      - Welding Inspector
+      - Construction Inspector
+      - Field Inspector
+      - Quality Inspector
+      - Inspection Manager
+      - Owner's Representative
+    keywords:
+      - qa/qc
+      - quality control
+      - quality assurance
+      - inspection and test plan
+      - inspector
+      - inspection
+      - source inspection
+      - vendor inspection
+      - factory acceptance test
+      - welding inspection
+      - non-destructive testing
+      - ndt
+      - itp
+      - ncr
+      - asme
+      - api 510
+      - api 570
+      - cwi
   project_management:
     weight: 0.9
     titles:

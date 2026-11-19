@@ -26,7 +26,25 @@ from job_scout.utils.text import normalise_key
 logger = logging.getLogger(__name__)
 
 
+_EXCLUDE_CACHE: dict[tuple, tuple[list[re.Pattern[str]], list[str]]] = {}
+
+
+def title_excluded(title: str, profile: dict[str, Any]) -> bool:
+    """True for other-discipline titles (electrical, controls, software...) per profile.yaml."""
+    spec = profile.get("exclude_titles") or {}
+    key = (tuple(spec.get("patterns") or ()), tuple(spec.get("keep_if_title_has") or ()))
+    if key not in _EXCLUDE_CACHE:
+        _EXCLUDE_CACHE[key] = ([re.compile(p, re.I) for p in key[0]], [k.lower() for k in key[1]])
+    patterns, keep = _EXCLUDE_CACHE[key]
+    text = (title or "").lower()
+    if not any(p.search(text) for p in patterns):
+        return False
+    return not any(word in text for word in keep)
+
+
 def is_family_relevant(title: str, description: str, profile: dict[str, Any]) -> bool:
+    if title_excluded(title, profile):
+        return False
     """Match family titles/keywords with token-set tolerance for inverted DPSA titles.
 
     Single-token keywords (water, plant, civil) must hit the title, or the body must
