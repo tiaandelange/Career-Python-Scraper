@@ -52,6 +52,9 @@ def run_all(memory: bool = False) -> dict:
         try:
             loaded = repo.preload_jobs()
             logger.info("Preloaded %s existing jobs", loaded)
+            # Only batch once the cache is complete: batching relies on it for reads.
+            if hasattr(repo, "begin_batch"):
+                repo.begin_batch()
         except Exception as exc:  # noqa: BLE001
             logger.warning("Job preload failed; falling back to per-job lookups: %s", exc)
 

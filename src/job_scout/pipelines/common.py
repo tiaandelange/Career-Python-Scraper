@@ -224,6 +224,9 @@ def run_pipeline(
             if missing_critical:
                 record_parser_anomaly(repo, source, sorted(set(missing_critical)))
 
+    flush = getattr(repo, "flush", None)
+    if flush is not None:
+        flush()
     apply_ageing(repo)
     duration = time.perf_counter() - t0
     repo.record_scrape_run(

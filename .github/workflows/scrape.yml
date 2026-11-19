@@ -46,6 +46,7 @@ jobs:
       - name: Health preflight
         run: python -m job_scout health
       - name: Scrape all pipelines
+        id: scrape
         timeout-minutes: 12
         env:
           USAJOBS_API_KEY: ${{ secrets.USAJOBS_API_KEY }}
@@ -56,7 +57,8 @@ jobs:
       - name: Remove closed jobs
         if: always()
         timeout-minutes: 5
-        run: python -m job_scout prune
+        # If the scrape did not finish, "not seen for 7 days" would wrongly delete live jobs.
+        run: python -m job_scout prune ${{ steps.scrape.outcome != 'success' && '--no-stale' || '' }}
       - name: Build dashboard
         if: always()
         run: python -m job_scout dashboard --out site

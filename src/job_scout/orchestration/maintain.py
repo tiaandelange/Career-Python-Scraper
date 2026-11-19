@@ -24,13 +24,21 @@ def prune_main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Delete saved jobs whose postings have closed")
     parser.add_argument("--dry-run", action="store_true", help="Report closed jobs without deleting")
     parser.add_argument("--stale-days", type=int, default=7)
+    parser.add_argument(
+        "--no-stale",
+        action="store_true",
+        help="Skip the 'not seen for N days' rule (use when the scrape did not complete)",
+    )
     parser.add_argument("--memory", action="store_true")
     args = parser.parse_args(argv)
     configure_logging(get_settings().job_scout_log_level)
     from job_scout.services.link_check import prune_closed_jobs
 
     try:
-        prune_closed_jobs(_repo(args.memory), dry_run=args.dry_run, stale_days=args.stale_days)
+        stale_days = 0 if args.no_stale else args.stale_days
+        if args.no_stale:
+            logger.info("Scrape did not complete: staleness rule disabled for this prune")
+        prune_closed_jobs(_repo(args.memory), dry_run=args.dry_run, stale_days=stale_days)
         return 0
     except Exception:
         logger.exception("Prune failed")

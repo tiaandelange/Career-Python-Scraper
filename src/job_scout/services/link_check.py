@@ -107,7 +107,14 @@ def check_job(job: CanonicalJobRecord, client: httpx.Client, *, stale_days: int)
     if job.closing_date and job.closing_date < now.date():
         return CheckOutcome(fp, LinkStatus.CLOSED, f"closing date {job.closing_date} passed", tombstone=True)
     # A future closing date beats staleness (weekly government circulars roll off the index early).
-    if not job.closing_date and job.last_seen_at and job.last_seen_at < now - timedelta(days=stale_days):
+    # stale_days=0 disables the rule (used when the scrape did not finish, so last_seen_at
+    # cannot be trusted).
+    if (
+        stale_days
+        and not job.closing_date
+        and job.last_seen_at
+        and job.last_seen_at < now - timedelta(days=stale_days)
+    ):
         return CheckOutcome(fp, LinkStatus.CLOSED, f"not listed by any source for {stale_days}+ days")
     url = job_url(job)
     if not url:

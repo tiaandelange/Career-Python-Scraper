@@ -342,6 +342,84 @@ class SupabaseJobRepository:
                 )
         return self._jobs_columns
 
+    # --- batched writes -------------------------------------------------------------------
+    # One HTTP round-trip per job (~0.3s from GitHub's US runners to an EU database) made a
+    # full scrape exceed the Actions step timeout. In batch mode rows queue in memory and are
+    # written BATCH_SIZE at a time; the preloaded cache keeps reads consistent meanwhile.
+    BATCH_SIZE = 200
+
+    def begin_batch(self) -> None:
+        self._batching = True
+        self._pending_jobs: dict[str, dict[str, Any]] = {}
+        self._pending_sources: dict[tuple[str, str], dict[str, Any]] = {}
+
+    def flush(self) -> int:
+        if not getattr(self, "_batching", False):
+            return 0
+        jobs = list(self._pending_jobs.values())
+        sources = list(self._pending_sources.values())
+        self._pending_jobs = {}
+        self._pending_sources = {}
+        for i in range(0, len(jobs), self.BATCH_SIZE):
+            self._upsert_job_rows(jobs[i : i + self.BATCH_SIZE])
+        for i in range(0, len(sources), 500):
+            self.client.table("job_sources").upsert(
+                sources[i : i + 500], on_conflict="source_name,source_job_id"
+            ).execute()
+        if jobs:
+            logger.info("Flushed %s jobs and %s source links", len(jobs), len(sources))
+        return len(jobs)
+
+    def _upsert_job_rows(self, rows: list[dict[str, Any]]) -> None:
+        for _attempt in range(5):
+            try:
+                self.client.table("jobs").upsert(rows, on_conflict="canonical_fingerprint").execute()
+                return
+            except Exception as exc:  # noqa: BLE001
+                missing_col = _pgrst204_column(exc)
+                if not missing_col or not any(missing_col in row for row in rows):
+                    raise
+                logger.warning("Dropping unknown jobs column %s after PGRST204 and retrying", missing_col)
+                for row in rows:
+                    row.pop(missing_col, None)
+                if self._jobs_columns is not None:
+                    self._jobs_columns = frozenset(c for c in self._jobs_columns if c != missing_col)
+        raise RuntimeError("jobs upsert kept failing on unknown columns")
+
+    def _queue(
+        self,
+        job: CanonicalJobRecord,
+        existing: CanonicalJobRecord | None,
+        payload: dict[str, Any],
+        source: JobSourceRef,
+        now: datetime,
+    ) -> CanonicalJobRecord:
+        from uuid import UUID
+
+        job.id = UUID(payload["id"])
+        job.first_seen_at = existing.first_seen_at if existing and existing.first_seen_at else now
+        job.last_seen_at = now
+        job.last_notified_at = existing.last_notified_at if existing else job.last_notified_at
+        job.digest_pending_update = bool(payload.get("digest_pending_update", job.digest_pending_update))
+        if source.source_url:
+            job.source_urls = list(dict.fromkeys([*job.source_urls, source.source_url]))
+        if self._cache is not None:
+            self._cache[job.canonical_fingerprint] = job.model_copy(deep=True)
+        # Later rows for the same fingerprint were merged with the cached copy, so last wins.
+        self._pending_jobs[job.canonical_fingerprint] = payload
+        if source.source_url:
+            self._pending_sources[(source.source_name, source.source_job_id)] = {
+                "job_id": payload["id"],
+                "source_name": source.source_name,
+                "source_job_id": source.source_job_id,
+                "source_url": source.source_url,
+                "direct_employer_url": source.direct_employer_url,
+                "last_seen_at": now.isoformat(),
+            }
+        if len(self._pending_jobs) >= self.BATCH_SIZE:
+            self.flush()
+        return job
+
     def upsert_job(self, job: CanonicalJobRecord, source: JobSourceRef) -> CanonicalJobRecord:
         now = utcnow()
         existing = self.get_by_fingerprint(job.canonical_fingerprint)
@@ -370,6 +448,8 @@ class SupabaseJobRepository:
         # Without a rejected column, keep salary/geo rejects out of digests via active=false.
         if job.rejected and "rejected" not in columns:
             payload["active"] = False
+        if getattr(self, "_batching", False):
+            return self._queue(job, existing, payload, source, now)
         try:
             result = self.client.table("jobs").upsert(payload, on_conflict="canonical_fingerprint").execute()
         except Exception as exc:  # noqa: BLE001
