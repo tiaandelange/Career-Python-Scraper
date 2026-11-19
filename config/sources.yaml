@@ -393,7 +393,7 @@ sources:
     notes: Official USAJOBS API. Disabled until USAJOBS_API_KEY is set. Many roles require US citizenship.
 
   adzuna:
-    enabled: false
+    enabled: true
     adapter: job_scout.adapters.regional.adzuna:AdzunaAdapter
     source_type: api
     pipelines: [hybrid, onsite]
@@ -404,7 +404,17 @@ sources:
     auth_required: true
     javascript_required: false
     salary_often_available: true
-    notes: Official free developer API with salary fields. Disabled until ADZUNA_APP_ID and ADZUNA_APP_KEY are set.
+    # Free tier: 25 calls/min, 250/day. 20 calls x 3 scrapes/day = 60/day (~1,800/month).
+    max_calls: 20
+    max_pages: 2
+    request_delay_seconds: 2.5
+    max_job_age_days: 30
+    searches:
+      us: [mechanical engineer, water engineer, project engineer, pipeline engineer, engineering project manager, water treatment engineer]
+      za: [mechanical engineer, project manager]
+    notes: >
+      Official free developer API. Fetches nothing until ADZUNA_APP_ID and ADZUNA_APP_KEY are set
+      (GitHub secrets / local .env). Adzuna's predicted salaries (salary_is_predicted=1) are ignored.
 
 disabled_not_implemented:
   linkedin:
